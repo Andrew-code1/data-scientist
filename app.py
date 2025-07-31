@@ -227,25 +227,63 @@ class DataAnalyzer:
                 st.error("No data loaded. Please upload a CSV file first.")
                 return pd.DataFrame()
             
+            # Ensure table is properly registered before executing query
+            try:
+                # Re-register the table to ensure it exists
+                self.conn.register(self.table_name, self.df)
+                st.info(f"✅ Table '{self.table_name}' registered successfully")
+            except Exception as reg_error:
+                st.error(f"Failed to register table: {str(reg_error)}")
+                return pd.DataFrame()
+            
             # Replace common table references
             query = query.replace('data', self.table_name)
             query = query.replace('df', self.table_name)
             
-            # Check if query contains the correct table name
-            if self.table_name not in query.lower() and 'describe' not in query.lower():
-                st.warning(f"Make sure to use '{self.table_name}' as the table name in your query.")
+            # Debug: Show what we're executing
+            with st.expander("🔍 Query Debug Info", expanded=False):
+                st.code(f"Executing query:\n{query}", language="sql")
+                
+                # Show table verification
+                try:
+                    tables = self.conn.execute("SHOW TABLES").fetchall()
+                    st.write(f"Available tables: {[table[0] for table in tables]}")
+                    
+                    if self.table_name in [table[0] for table in tables]:
+                        # Test basic query
+                        test_count = self.conn.execute(f"SELECT COUNT(*) FROM {self.table_name}").fetchone()[0]
+                        st.success(f"Table verified: {test_count:,} rows")
+                        
+                        # Show first few column names from actual table
+                        sample = self.conn.execute(f"SELECT * FROM {self.table_name} LIMIT 1").fetchdf()
+                        st.write(f"Actual columns in table: {list(sample.columns)}")
+                    else:
+                        st.error(f"Table {self.table_name} not found in DuckDB")
+                except Exception as debug_e:
+                    st.error(f"Debug error: {str(debug_e)}")
             
             result = self.conn.execute(query).fetchdf()
             return result
+            
         except Exception as e:
             error_msg = str(e)
             if "No files found" in error_msg:
                 st.error("❌ **Query Error**: Don't use file paths in queries. Use the table name **`uploaded_data`** instead.")
                 st.info("💡 **Tip**: Replace any file references like `'file.csv'` with `uploaded_data`")
             elif "does not exist" in error_msg:
-                st.error(f"❌ **Query Error**: Table or column doesn't exist. Use **`uploaded_data`** as table name.")
+                st.error(f"❌ **Query Error**: Table or column doesn't exist.")
+                st.error(f"**Error details**: {error_msg}")
+                
+                # Show available info
                 if self.df is not None:
-                    st.info(f"Available columns: {', '.join(['`' + col + '`' for col in self.df.columns])}")
+                    st.info("**DataFrame columns**: " + ", ".join([f"`{col}`" for col in self.df.columns]))
+                    
+                    # Try to show what's actually in DuckDB
+                    try:
+                        tables = self.conn.execute("SHOW TABLES").fetchall()
+                        st.info(f"**DuckDB tables**: {[table[0] for table in tables]}")
+                    except:
+                        st.warning("Could not retrieve DuckDB table list")
             else:
                 st.error(f"❌ **Query Error**: {error_msg}")
             return pd.DataFrame()
@@ -432,6 +470,41 @@ def create_query_tab(analyzer: DataAnalyzer):
     st.subheader("Custom SQL Queries")
     st.write("Write custom DuckDB SQL queries to analyze your data. Use **`uploaded_data`** as the table name.")
     
+    # Debug information panel
+    with st.expander("🔍 Debug Information", expanded=False):
+        st.write("**DuckDB Connection Status:**")
+        try:
+            # Test connection
+            test_result = analyzer.conn.execute("SELECT 1 as test").fetchone()
+            st.success(f"✅ DuckDB connection active (test result: {test_result[0]})")
+            
+            # Check if table exists
+            try:
+                tables = analyzer.conn.execute("SHOW TABLES").fetchall()
+                st.write(f"**Available Tables:** {[table[0] for table in tables]}")
+                
+                if analyzer.table_name in [table[0] for table in tables]:
+                    st.success(f"✅ Table '{analyzer.table_name}' exists")
+                    
+                    # Show table schema
+                    schema = analyzer.conn.execute(f"DESCRIBE {analyzer.table_name}").fetchall()
+                    st.write("**Table Schema:**")
+                    schema_df = pd.DataFrame(schema, columns=['Column', 'Type', 'Null', 'Key', 'Default', 'Extra'])
+                    st.dataframe(schema_df, hide_index=True)
+                    
+                    # Show row count
+                    row_count = analyzer.conn.execute(f"SELECT COUNT(*) FROM {analyzer.table_name}").fetchone()[0]
+                    st.info(f"📊 Total rows in table: {row_count:,}")
+                    
+                else:
+                    st.error(f"❌ Table '{analyzer.table_name}' does not exist")
+                    
+            except Exception as e:
+                st.error(f"❌ Error checking tables: {str(e)}")
+                
+        except Exception as e:
+            st.error(f"❌ DuckDB connection error: {str(e)}")
+    
     # Show available columns
     if analyzer.df is not None:
         st.write("**Available Columns:**")
@@ -440,6 +513,23 @@ def create_query_tab(analyzer: DataAnalyzer):
             col_type = str(analyzer.df[col].dtype)
             cols_info.append(f"`{col}` ({col_type})")
         st.write(", ".join(cols_info))
+        
+        # Quick column copy buttons
+        st.write("**Quick Copy Column Names:**")
+        col_buttons = st.columns(min(len(analyzer.df.columns), 6))
+        for i, col in enumerate(analyzer.df.columns[:6]):
+            with col_buttons[i % 6]:
+                if st.button(f"📋 {col[:10]}...", key=f"copy_{i}", help=f"Copy: {col}"):
+                    st.code(col, language=None)
+        
+        if len(analyzer.df.columns) > 6:
+            with st.expander("More Columns"):
+                remaining_cols = analyzer.df.columns[6:]
+                more_buttons = st.columns(min(len(remaining_cols), 6))
+                for i, col in enumerate(remaining_cols):
+                    with more_buttons[i % 6]:
+                        if st.button(f"📋 {col[:10]}...", key=f"copy_more_{i}", help=f"Copy: {col}"):
+                            st.code(col, language=None)
     
     # Example queries with actual column names
     with st.expander("Example Queries", expanded=True):

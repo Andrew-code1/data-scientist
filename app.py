@@ -45,19 +45,38 @@ class DataAnalyzer:
         self.table_name = 'uploaded_data'
     
     def detect_encoding(self, uploaded_file):
-        """Detect file encoding automatically"""
+        """Detect file encoding automatically with enhanced Korean support"""
         import chardet
         
         # Reset file pointer to beginning
         uploaded_file.seek(0)
-        # Read a sample of the file for encoding detection
-        sample = uploaded_file.read(10000)
+        # Read a larger sample for better detection
+        sample = uploaded_file.read(50000)  # Increased sample size
         uploaded_file.seek(0)  # Reset again
         
         # Detect encoding
         detection = chardet.detect(sample)
         encoding = detection['encoding']
         confidence = detection['confidence']
+        
+        # Enhanced Korean detection
+        if sample:
+            # Check for Korean characters patterns
+            korean_patterns = [
+                b'\xb1\xb8',  # 구 in CP949
+                b'\xba\xd0',  # 분 in CP949
+                b'\xbf\xec',  # 연 in CP949
+                b'\xb3\xe2',  # 년 in CP949
+                b'\xc0\xda',  # 자 in CP949
+                b'\xb7\xae',  # 량 in CP949
+                b'\xbb\xe7',  # 사 in CP949
+                b'\xbf\xeb',  # 용 in CP949
+            ]
+            
+            # If Korean patterns detected but encoding is not Korean, suggest CP949
+            korean_pattern_found = any(pattern in sample for pattern in korean_patterns)
+            if korean_pattern_found and encoding not in ['cp949', 'euc-kr']:
+                return 'cp949', 0.9  # High confidence for CP949
         
         return encoding, confidence
     
@@ -93,9 +112,9 @@ class DataAnalyzer:
                     self.df = pd.read_csv(uploaded_file, encoding=encoding_attempt)
                     st.success(f"Successfully loaded CSV with encoding: {encoding_attempt}")
                     
-                    # Create table in DuckDB
+                    # Create table in DuckDB - use register instead of CREATE TABLE
                     self.conn.execute(f"DROP TABLE IF EXISTS {self.table_name}")
-                    self.conn.execute(f"CREATE TABLE {self.table_name} AS SELECT * FROM df")
+                    self.conn.register(self.table_name, self.df)
                     return True
                     
                 except UnicodeDecodeError as e:
@@ -111,6 +130,22 @@ class DataAnalyzer:
             
         except Exception as e:
             st.error(f"Error loading CSV: {str(e)}")
+            return False
+    
+    def load_csv_data_with_encoding(self, uploaded_file, encoding: str) -> bool:
+        """Load CSV data with specified encoding"""
+        try:
+            uploaded_file.seek(0)
+            self.df = pd.read_csv(uploaded_file, encoding=encoding)
+            st.success(f"Successfully loaded CSV with encoding: {encoding}")
+            
+            # Create table in DuckDB
+            self.conn.execute(f"DROP TABLE IF EXISTS {self.table_name}")
+            self.conn.register(self.table_name, self.df)
+            return True
+            
+        except Exception as e:
+            st.error(f"Error loading CSV with encoding {encoding}: {str(e)}")
             return False
     
     def get_data_overview(self) -> Dict:
@@ -491,10 +526,30 @@ def main():
             help="Upload a CSV file to begin analysis"
         )
         
+        # Encoding selection option
+        if uploaded_file is not None:
+            st.subheader("🔧 Encoding Options")
+            encoding_mode = st.radio(
+                "Encoding Detection:",
+                ["Auto-detect", "Manual Selection"],
+                help="Choose automatic detection or manually select encoding"
+            )
+            
+            manual_encoding = None
+            if encoding_mode == "Manual Selection":
+                manual_encoding = st.selectbox(
+                    "Select Encoding:",
+                    ['cp949', 'euc-kr', 'utf-8', 'latin1', 'cp1252', 'iso-8859-1'],
+                    help="Select the encoding for your CSV file"
+                )
+        
         if uploaded_file is not None:
             if st.button("Load Data", type="primary"):
                 with st.spinner("Loading data..."):
-                    success = analyzer.load_csv_data(uploaded_file)
+                    if encoding_mode == "Manual Selection":
+                        success = analyzer.load_csv_data_with_encoding(uploaded_file, manual_encoding)
+                    else:
+                        success = analyzer.load_csv_data(uploaded_file)
                     if success:
                         st.success("Data loaded successfully!")
                         st.rerun()

@@ -44,16 +44,71 @@ class DataAnalyzer:
         self.df = None
         self.table_name = 'uploaded_data'
     
+    def detect_encoding(self, uploaded_file):
+        """Detect file encoding automatically"""
+        import chardet
+        
+        # Reset file pointer to beginning
+        uploaded_file.seek(0)
+        # Read a sample of the file for encoding detection
+        sample = uploaded_file.read(10000)
+        uploaded_file.seek(0)  # Reset again
+        
+        # Detect encoding
+        detection = chardet.detect(sample)
+        encoding = detection['encoding']
+        confidence = detection['confidence']
+        
+        return encoding, confidence
+    
     def load_csv_data(self, uploaded_file) -> bool:
-        """Load CSV data into DuckDB"""
+        """Load CSV data into DuckDB with automatic encoding detection"""
         try:
-            # Read CSV with pandas first for better error handling
-            self.df = pd.read_csv(uploaded_file)
+            # Try to detect encoding
+            try:
+                encoding, confidence = self.detect_encoding(uploaded_file)
+                st.info(f"Detected encoding: {encoding} (confidence: {confidence:.2f})")
+            except:
+                encoding = None
+                confidence = 0
             
-            # Create table in DuckDB
-            self.conn.execute(f"DROP TABLE IF EXISTS {self.table_name}")
-            self.conn.execute(f"CREATE TABLE {self.table_name} AS SELECT * FROM df")
-            return True
+            # List of encodings to try
+            encodings_to_try = []
+            
+            # Add detected encoding first if confidence is high
+            if encoding and confidence > 0.7:
+                encodings_to_try.append(encoding)
+            
+            # Add common encodings
+            common_encodings = ['utf-8', 'cp949', 'euc-kr', 'latin1', 'cp1252', 'iso-8859-1']
+            for enc in common_encodings:
+                if enc not in encodings_to_try:
+                    encodings_to_try.append(enc)
+            
+            # Try each encoding
+            last_error = None
+            for encoding_attempt in encodings_to_try:
+                try:
+                    uploaded_file.seek(0)  # Reset file pointer
+                    self.df = pd.read_csv(uploaded_file, encoding=encoding_attempt)
+                    st.success(f"Successfully loaded CSV with encoding: {encoding_attempt}")
+                    
+                    # Create table in DuckDB
+                    self.conn.execute(f"DROP TABLE IF EXISTS {self.table_name}")
+                    self.conn.execute(f"CREATE TABLE {self.table_name} AS SELECT * FROM df")
+                    return True
+                    
+                except UnicodeDecodeError as e:
+                    last_error = f"Encoding {encoding_attempt}: {str(e)}"
+                    continue
+                except Exception as e:
+                    last_error = f"Encoding {encoding_attempt}: {str(e)}"
+                    continue
+            
+            # If all encodings failed
+            st.error(f"Failed to load CSV with any encoding. Last error: {last_error}")
+            return False
+            
         except Exception as e:
             st.error(f"Error loading CSV: {str(e)}")
             return False

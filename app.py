@@ -44,6 +44,14 @@ class DataAnalyzer:
         self.df = None
         self.table_name = 'uploaded_data'
     
+    def reset_connection(self):
+        """Reset DuckDB connection to clear all objects"""
+        try:
+            self.conn.close()
+        except:
+            pass
+        self.conn = duckdb.connect(':memory:')
+    
     def detect_encoding(self, uploaded_file):
         """Detect file encoding automatically with enhanced Korean support"""
         import chardet
@@ -112,8 +120,10 @@ class DataAnalyzer:
                     self.df = pd.read_csv(uploaded_file, encoding=encoding_attempt)
                     st.success(f"Successfully loaded CSV with encoding: {encoding_attempt}")
                     
-                    # Create table in DuckDB - use register instead of CREATE TABLE
-                    self.conn.execute(f"DROP TABLE IF EXISTS {self.table_name}")
+                    # Reset DuckDB connection to avoid conflicts
+                    self.reset_connection()
+                    
+                    # Register the new dataframe
                     self.conn.register(self.table_name, self.df)
                     return True
                     
@@ -139,8 +149,10 @@ class DataAnalyzer:
             self.df = pd.read_csv(uploaded_file, encoding=encoding)
             st.success(f"Successfully loaded CSV with encoding: {encoding}")
             
-            # Create table in DuckDB
-            self.conn.execute(f"DROP TABLE IF EXISTS {self.table_name}")
+            # Reset DuckDB connection to avoid conflicts
+            self.reset_connection()
+            
+            # Register the new dataframe
             self.conn.register(self.table_name, self.df)
             return True
             
@@ -210,14 +222,32 @@ class DataAnalyzer:
     def execute_custom_query(self, query: str) -> pd.DataFrame:
         """Execute custom DuckDB query"""
         try:
+            # Check if data is loaded
+            if self.df is None:
+                st.error("No data loaded. Please upload a CSV file first.")
+                return pd.DataFrame()
+            
             # Replace common table references
             query = query.replace('data', self.table_name)
             query = query.replace('df', self.table_name)
             
+            # Check if query contains the correct table name
+            if self.table_name not in query.lower() and 'describe' not in query.lower():
+                st.warning(f"Make sure to use '{self.table_name}' as the table name in your query.")
+            
             result = self.conn.execute(query).fetchdf()
             return result
         except Exception as e:
-            st.error(f"Query error: {str(e)}")
+            error_msg = str(e)
+            if "No files found" in error_msg:
+                st.error("❌ **Query Error**: Don't use file paths in queries. Use the table name **`uploaded_data`** instead.")
+                st.info("💡 **Tip**: Replace any file references like `'file.csv'` with `uploaded_data`")
+            elif "does not exist" in error_msg:
+                st.error(f"❌ **Query Error**: Table or column doesn't exist. Use **`uploaded_data`** as table name.")
+                if self.df is not None:
+                    st.info(f"Available columns: {', '.join(['`' + col + '`' for col in self.df.columns])}")
+            else:
+                st.error(f"❌ **Query Error**: {error_msg}")
             return pd.DataFrame()
     
     def get_correlation_matrix(self) -> pd.DataFrame:
@@ -395,34 +425,80 @@ def create_visualizations_tab(analyzer: DataAnalyzer):
 
 def create_query_tab(analyzer: DataAnalyzer):
     """Create custom query tab"""
-    st.subheader("Custom SQL Queries")
-    st.write("Write custom DuckDB SQL queries to analyze your data. Use 'uploaded_data' as the table name.")
+    if analyzer.df is None:
+        st.warning("No data loaded. Please upload a CSV file first.")
+        return
     
-    # Example queries
-    with st.expander("Example Queries"):
-        st.code("""
+    st.subheader("Custom SQL Queries")
+    st.write("Write custom DuckDB SQL queries to analyze your data. Use **`uploaded_data`** as the table name.")
+    
+    # Show available columns
+    if analyzer.df is not None:
+        st.write("**Available Columns:**")
+        cols_info = []
+        for col in analyzer.df.columns:
+            col_type = str(analyzer.df[col].dtype)
+            cols_info.append(f"`{col}` ({col_type})")
+        st.write(", ".join(cols_info))
+    
+    # Example queries with actual column names
+    with st.expander("Example Queries", expanded=True):
+        if analyzer.df is not None and len(analyzer.df.columns) > 0:
+            first_col = analyzer.df.columns[0]
+            numeric_cols = analyzer.df.select_dtypes(include=['number']).columns.tolist()
+            first_numeric = numeric_cols[0] if numeric_cols else first_col
+            
+            example_queries = f"""
 -- Basic data exploration
 SELECT * FROM uploaded_data LIMIT 10;
 
--- Count records by category
-SELECT column_name, COUNT(*) as count 
-FROM uploaded_data 
-GROUP BY column_name 
-ORDER BY count DESC;
+-- Total row count
+SELECT COUNT(*) as total_rows FROM uploaded_data;
 
--- Statistical summary
+-- Column information
+DESCRIBE uploaded_data;
+
+-- Count records by category (replace '{first_col}' with your column name)
+SELECT {first_col}, COUNT(*) as count 
+FROM uploaded_data 
+GROUP BY {first_col} 
+ORDER BY count DESC;"""
+            
+            if numeric_cols:
+                example_queries += f"""
+
+-- Statistical summary for numeric columns
 SELECT 
-    AVG(numeric_column) as avg_value,
-    MIN(numeric_column) as min_value,
-    MAX(numeric_column) as max_value
-FROM uploaded_data;
+    AVG({first_numeric}) as avg_value,
+    MIN({first_numeric}) as min_value,
+    MAX({first_numeric}) as max_value,
+    STDDEV({first_numeric}) as std_value
+FROM uploaded_data;"""
+            
+            example_queries += """
 
 -- Find duplicates
 SELECT *, COUNT(*) as duplicate_count
 FROM uploaded_data
 GROUP BY ALL
 HAVING COUNT(*) > 1;
-        """)
+
+-- Show data types
+SELECT column_name, data_type 
+FROM (DESCRIBE uploaded_data);"""
+            
+            st.code(example_queries)
+        else:
+            st.code("""
+-- Basic data exploration
+SELECT * FROM uploaded_data LIMIT 10;
+
+-- Total row count  
+SELECT COUNT(*) as total_rows FROM uploaded_data;
+
+-- Column information
+DESCRIBE uploaded_data;
+            """)
     
     # Query input
     query = st.text_area(

@@ -95,13 +95,11 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     ms_key = f"{key_prefix}_ms"
     if ms_key not in st.session_state:
         st.session_state[ms_key] = options
-    col1, col2, col3 = st.columns([7, 0.7, 0.7])
+    col1, col2 = st.columns([8.5, 0.7])
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
         st.button("⚫", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", help="전체 선택")
-    with col3:
-        st.button("⚪", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none", help="전체 해제")
     return sel
 
 with st.sidebar:
@@ -291,6 +289,10 @@ if df is not None and not df.empty:
     patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
 
     if patt:
+        if " " in patt and "*" not in patt:
+            words = patt.split()
+            patt = "*" + "*".join(words) + "*"
+        
         patt_sql = patt.replace("*", "%").replace("'", "''")
         search_df = con.execute(
             f"""

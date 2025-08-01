@@ -289,9 +289,15 @@ if df is not None and not df.empty:
     patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
 
     if patt:
-        if " " in patt and "*" not in patt:
-            words = patt.split()
-            patt = "*" + "*".join(words) + "*"
+        # 와일드카드가 없으면 자동으로 추가
+        if "*" not in patt:
+            if " " in patt:
+                # 띄어쓰기가 있으면 각 단어에 와일드카드 적용
+                words = patt.split()
+                patt = "*" + "*".join(words) + "*"
+            else:
+                # 단일 단어도 양쪽에 와일드카드 추가
+                patt = "*" + patt + "*"
         
         patt_sql = patt.replace("*", "%").replace("'", "''")
         search_df = con.execute(

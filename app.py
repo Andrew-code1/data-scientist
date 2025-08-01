@@ -1,9 +1,11 @@
 # backdata_dashboard.py
 """구매 데이터 대시보드 (Streamlit + DuckDB)
 
-- **파일 업로드 방식**: 앱 실행 후 CSV(인코딩 cp949)를 업로드합니다.
-- **필터**: 연도(마감월→연도), 플랜트, 구매그룹
-- **집계**: 연도별 송장수량(천 EA), 송장금액(백만 원)
+- **파일 업로드 방식**: 실행 후 CSV(인코딩 cp949)를 업로드합니다.
+- **필터**: 연도(마감월→연도), 플랜트, 구매그룹, 공급업체(업체명)
+- **집계**:
+    1. 연도별 송장수량(천 EA), 송장금액(백만 원)
+    2. 업체별 송장수량·금액 (선택 필터 적용 결과)
 - **기능**: 자재명 부분 검색, 결과 CSV 다운로드(UTF-8 BOM)
 
 실행::
@@ -37,12 +39,22 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     df["송장수량"] = pd.to_numeric(df["송장수량"], errors="coerce").fillna(0)
     df["송장금액"] = pd.to_numeric(df["송장금액"], errors="coerce").fillna(0)
 
+    # 문자열 공백 제거
+    for col in ["공급업체명"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
     return df
 
 
-def list_to_sql_in(values: list) -> str:
-    """Python 리스트를 SQL IN 절 문자열로 변환 (비어있으면 NULL 방지용 dummy)"""
+def num_list_to_sql(values: list[int]) -> str:
+    """숫자 리스트 → SQL IN 문자열"""
     return ",".join(map(str, values)) if values else "-1"  # 존재하지 않을 값
+
+
+def str_list_to_sql(values: list[str]) -> str:
+    """문자열 리스트 → SQL IN 문자열 (escape)"""
+    return ",".join(f"'{v.replace("'", "''")}'" for v in values) if values else "''"
 
 # ---------------------------------------------------------------------------
 # 사이드바 – CSV 업로드
@@ -85,16 +97,19 @@ if df is not None and not df.empty:
         years_all = df["연도"].dropna().astype(int).sort_values().unique().tolist()
         plants_all = df["플랜트"].dropna().astype(int).sort_values().unique().tolist()
         groups_all = df["구매그룹"].dropna().astype(int).sort_values().unique().tolist()
+        suppliers_all = df["공급업체명"].dropna().sort_values().unique().tolist()
 
         selected_years = st.multiselect("연도", years_all, default=years_all)
         selected_plants = st.multiselect("플랜트", plants_all, default=plants_all)
         selected_groups = st.multiselect("구매그룹", groups_all, default=groups_all)
+        selected_suppliers = st.multiselect("공급업체", suppliers_all, default=suppliers_all)
 
-    year_clause = list_to_sql_in(selected_years)
-    plant_clause = list_to_sql_in(selected_plants)
-    group_clause = list_to_sql_in(selected_groups)
+    year_clause = num_list_to_sql(selected_years)
+    plant_clause = num_list_to_sql(selected_plants)
+    group_clause = num_list_to_sql(selected_groups)
+    supplier_clause = str_list_to_sql(selected_suppliers)
 
-    # -------------------- 집계 쿼리 --------------------
+    # -------------------- 연도별 집계 --------------------
     agg_sql = f"""
         SELECT
             연도,
@@ -104,18 +119,42 @@ if df is not None and not df.empty:
         WHERE 연도 IN ({year_clause})
           AND 플랜트 IN ({plant_clause})
           AND 구매그룹 IN ({group_clause})
+          AND 공급업체명 IN ({supplier_clause})
         GROUP BY 1
         ORDER BY 1
     """
-    result_df = con.execute(agg_sql).fetchdf()
+    year_df = con.execute(agg_sql).fetchdf()
 
-    # -------------------- 시각화/표 --------------------
     st.title("📊 연도별 구매 현황")
-    st.dataframe(result_df, hide_index=True, use_container_width=True)
+    st.dataframe(year_df, hide_index=True, use_container_width=True)
 
-    if not result_df.empty:
-        st.line_chart(result_df.set_index("연도"))
+    if not year_df.empty:
+        st.line_chart(year_df.set_index("연도"))
     st.caption("단위: 송장수량 = 천 EA, 송장금액 = 백만 원")
+
+    # -------------------- 업체별 집계 --------------------
+    sup_sql = f"""
+        SELECT
+            공급업체명,
+            ROUND(SUM(송장수량) / 1000, 2)  AS 송장수량_천EA,
+            ROUND(SUM(송장금액) / 1000000, 2) AS 송장금액_백만원
+        FROM data
+        WHERE 연도 IN ({year_clause})
+          AND 플랜트 IN ({plant_clause})
+          AND 구매그룹 IN ({group_clause})
+          AND 공급업체명 IN ({supplier_clause})
+        GROUP BY 1
+        ORDER BY 2 DESC
+    """
+    sup_df = con.execute(sup_sql).fetchdf()
+
+    st.markdown("---")
+    st.header("🏢 업체별 구매 현황")
+    st.dataframe(sup_df, hide_index=True, use_container_width=True)
+
+    if not sup_df.empty:
+        sup_csv = sup_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+        st.download_button("업체별 CSV 다운로드", sup_csv, file_name="supplier_summary.csv", mime="text/csv")
 
     # -------------------- 자재명 부분 검색 --------------------
     st.markdown("---")
@@ -126,12 +165,17 @@ if df is not None and not df.empty:
         safe_kw = keyword.replace("'", "''")
         search_sql = f"""
             SELECT 마감월, 연도, 플랜트, 구매그룹,
+                   공급업체명,
                    자재   AS 자재코드,
                    자재명,
                    ROUND(송장수량 / 1000, 2)  AS 송장수량_천EA,
                    ROUND(송장금액 / 1000000, 2) AS 송장금액_백만원
             FROM data
             WHERE 자재명 ILIKE '%{safe_kw}%'
+              AND 연도 IN ({year_clause})
+              AND 플랜트 IN ({plant_clause})
+              AND 구매그룹 IN ({group_clause})
+              AND 공급업체명 IN ({supplier_clause})
             ORDER BY 마감월
         """
         search_df = con.execute(search_sql).fetchdf()

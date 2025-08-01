@@ -1,11 +1,3 @@
-# backdata_dashboard.py
-"""구매 데이터 대시보드 (Streamlit + DuckDB)
-
-실행::
-    streamlit run backdata_dashboard.py
-"""
-from __future__ import annotations
-
 from io import BytesIO
 from typing import List, Optional
 
@@ -16,10 +8,8 @@ import streamlit as st
 
 st.set_page_config(page_title="구매 데이터 대시보드", layout="wide")
 
-# 작은 버튼 스타일 적용
 st.markdown("""
 <style>
-    /*  */
     .stSidebar .stButton > button {
         height: 2.2rem !important;
         font-size: 0.6rem !important;
@@ -33,9 +23,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ════════════════════════════════════════════════════════════════════════
-#  Data Load
-# ════════════════════════════════════════════════════════════════════════
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = df.columns.str.strip()
@@ -63,7 +50,6 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
         st.error(" '마감월' 컬럼을 찾을 수 없습니다. 헤더명을 확인해 주세요.")
         st.stop()
 
-    # Excel Date conversion
     if pd.api.types.is_numeric_dtype(df["마감월"]):
         df["마감월"] = pd.to_datetime(df["마감월"], unit="D", origin="1899-12-30", errors="coerce")
     else:
@@ -76,7 +62,6 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if num_cols:
         df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
 
-    # 공급업체 표시
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
@@ -87,9 +72,6 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
 
     return df
 
-# ════════════════════════════════════════════════════════════════════════
-#  헬퍼 함수
-# ════════════════════════════════════════════════════════════════════════
 
 def sql_list_num(vals: list[int]) -> str:
     return ",".join(map(str, vals)) if vals else "-1"
@@ -102,7 +84,6 @@ def sql_list_str(vals: list[str]) -> str:
     return ",".join(f"'{v}'" for v in esc)
 
 
-# ---- 멀티셀렉트 전체/해제 ----
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
@@ -118,14 +99,11 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
-        st.button("전체", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all")
+        st.button("⚫", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", help="전체 선택")
     with col3:
-        st.button("해제", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none")
+        st.button("⚪", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none", help="전체 해제")
     return sel
 
-# ════════════════════════════════════════════════════════════════════════
-#  파일 업로드
-# ════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.header("CSV 업로드")
     uploaded_file = st.file_uploader("backdata.csv (cp949)", type="csv")
@@ -140,14 +118,10 @@ else:
     st.info("먼저 CSV 파일을 업로드해 주세요.")
     df = None
 
-# ════════════════════════════════════════════════════════════════════════
-#  대시보드
-# ════════════════════════════════════════════════════════════════════════
 if df is not None and not df.empty:
     con = duckdb.connect(database=":memory:")
     con.register("data", df)
 
-    # --- 사이드바 필터 ---
     with st.sidebar:
         st.header("필터 조건")
         years_all = sorted(df["연도"].dropna().astype(int).unique().tolist())
@@ -171,10 +145,8 @@ if df is not None and not df.empty:
 
     where_sql = " WHERE " + " AND ".join(clauses)
 
-    # --- 월별 시계열 ---
     st.title("월별 구매 추이")
     
-    # 시계열 옵션 선택
     col1, col2 = st.columns(2)
     with col1:
         metric_option = st.selectbox(
@@ -189,7 +161,6 @@ if df is not None and not df.empty:
             key="group_select"
         )
 
-    # 지표별 설정
     if metric_option == "송장금액":
         metric_col = "SUM(송장금액)/1000000"
         metric_name = "송장금액_백만원"
@@ -201,7 +172,6 @@ if df is not None and not df.empty:
         unit_text = "천EA"
         y_title = "송장수량 (천EA)"
 
-    # 그룹별 SQL 쿼리 생성
     if group_option == "전체":
         group_by_sql = ""
         group_col = ""
@@ -223,7 +193,6 @@ if df is not None and not df.empty:
         select_cols = f"date_trunc('month', 마감월) AS 연월, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2, 3"
 
-    # 데이터 조회
     month_df = con.execute(
         f"""
         SELECT {select_cols}
@@ -239,11 +208,9 @@ if df is not None and not df.empty:
     else:
         month_df["연월표시"] = month_df["연월"].dt.strftime("%Y년%m월")
         
-        # 플랜트+업체별인 경우 조합 컬럼 생성
         if group_option == "플랜트+업체별":
             month_df["플랜트_업체"] = month_df["플랜트"].astype(str) + "_" + month_df["공급업체명"]
         
-        # 데이터테이블 표시
         if group_option == "전체":
             display_cols = ["연월표시", metric_name]
             st.dataframe(month_df[display_cols], hide_index=True, use_container_width=True)
@@ -254,7 +221,6 @@ if df is not None and not df.empty:
             display_cols = ["연월표시", group_col, metric_name]
             st.dataframe(month_df[display_cols], hide_index=True, use_container_width=True)
 
-        # 차트 생성
         if group_option == "전체":
             chart = (
                 alt.Chart(month_df)
@@ -295,7 +261,6 @@ if df is not None and not df.empty:
         
     st.caption(f"단위: {metric_option} = {unit_text}")
 
-    # --- 업체별 집계 ---
     if suppliers_all:
         sup_df = con.execute(
             f"""
@@ -321,7 +286,6 @@ if df is not None and not df.empty:
                 mime="text/csv",
             )
 
-    # --- 자재명 검색 ---
     st.markdown("---")
     st.header(" 자재명 검색 (와일드카드 * 사용 가능)")
     patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")

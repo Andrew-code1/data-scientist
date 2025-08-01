@@ -16,6 +16,19 @@ import streamlit as st
 
 st.set_page_config(page_title="구매 데이터 대시보드", layout="wide")
 
+# 작은 버튼 스타일 적용
+st.markdown("""
+<style>
+    /*  */
+    .stSidebar .stButton > button {
+        height: 2rem !important;
+        font-size: 0.75rem !important;
+        padding: 0.2rem 0.4rem !important;
+        min-height: 2rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ════════════════════════════════════════════════════════════════════════
 #  Data Load
 # ════════════════════════════════════════════════════════════════════════
@@ -97,13 +110,17 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     ms_key = f"{key_prefix}_ms"
     if ms_key not in st.session_state:
         st.session_state[ms_key] = options
-    col1, col2, col3 = st.columns([5, 1, 1])
+    col1, col2, col3 = st.columns([7, 0.7, 0.7])
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
-        st.button("전체", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", use_container_width=False)
+        if st.button("전체", key=f"{key_prefix}_all"):
+            st.session_state[ms_key] = options
+            st.rerun()
     with col3:
-        st.button("해제", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none", use_container_width=False)
+        if st.button("해제", key=f"{key_prefix}_none"):
+            st.session_state[ms_key] = []
+            st.rerun()
     return sel
 
 # ════════════════════════════════════════════════════════════════════════

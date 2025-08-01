@@ -1,11 +1,6 @@
 # backdata_dashboard.py
 """구매 데이터 대시보드 (Streamlit + DuckDB)
 
-📌 **2025‑08‑01 hotfix2**
-
-* `st.caption` 문자열이 닫히지 않아 발생한 **`SyntaxError: unterminated string literal`** 해결
-* 코드 끝까지 정상적으로 포함하여 실행 오류 제거
-
 실행::
     streamlit run backdata_dashboard.py
 """
@@ -22,7 +17,7 @@ import streamlit as st
 st.set_page_config(page_title="구매 데이터 대시보드", layout="wide")
 
 # ════════════════════════════════════════════════════════════════════════
-#  데이터 로딩 & 전처리
+#  Data Load
 # ════════════════════════════════════════════════════════════════════════
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -48,10 +43,10 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     df = _standardize_columns(df)
 
     if "마감월" not in df.columns:
-        st.error("⚠️ '마감월' 컬럼을 찾을 수 없습니다. 헤더명을 확인해 주세요.")
+        st.error(" '마감월' 컬럼을 찾을 수 없습니다. 헤더명을 확인해 주세요.")
         st.stop()
 
-    # Excel 일련번호 → 날짜
+    # Excel Date conversion
     if pd.api.types.is_numeric_dtype(df["마감월"]):
         df["마감월"] = pd.to_datetime(df["마감월"], unit="D", origin="1899-12-30", errors="coerce")
     else:
@@ -64,7 +59,7 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if num_cols:
         df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
 
-    # 공급업체 표시용
+    # 공급업체 표시
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
@@ -76,7 +71,7 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     return df
 
 # ════════════════════════════════════════════════════════════════════════
-# 🔧 헬퍼 함수
+#  헬퍼 함수
 # ════════════════════════════════════════════════════════════════════════
 
 def sql_list_num(vals: list[int]) -> str:
@@ -112,7 +107,7 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     return sel
 
 # ════════════════════════════════════════════════════════════════════════
-# 📂 파일 업로드
+#  파일 업로드
 # ════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.header("CSV 업로드")
@@ -160,7 +155,7 @@ if df is not None and not df.empty:
     where_sql = " WHERE " + " AND ".join(clauses)
 
     # --- 월별 시계열 ---
-    st.title("📈 월별 구매 추이")
+    st.title("월별 구매 추이")
     
     # 시계열 옵션 선택
     col1, col2 = st.columns(2)
@@ -173,7 +168,7 @@ if df is not None and not df.empty:
     with col2:
         group_option = st.selectbox(
             "분석 단위",
-            ["전체", "플랜트별", "업체별"],
+            ["전체", "플랜트별", "업체별", "플랜트+업체별"],
             key="group_select"
         )
 
@@ -200,11 +195,16 @@ if df is not None and not df.empty:
         group_col = "플랜트"
         select_cols = f"date_trunc('month', 마감월) AS 연월, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2"
-    else:  # 업체별
+    elif group_option == "업체별":
         group_by_sql = "공급업체명,"
         group_col = "공급업체명"
         select_cols = f"date_trunc('month', 마감월) AS 연월, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2"
+    else:  # 플랜트+업체별
+        group_by_sql = "플랜트, 공급업체명,"
+        group_col = "플랜트_업체"
+        select_cols = f"date_trunc('month', 마감월) AS 연월, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2, 3"
 
     # 데이터 조회
     month_df = con.execute(
@@ -213,7 +213,7 @@ if df is not None and not df.empty:
         FROM data
         {where_sql}
         {group_by_clause}
-        ORDER BY 1, 2
+        ORDER BY 1, 2{', 3' if group_option == '플랜트+업체별' else ''}
         """
     ).fetchdf()
 
@@ -222,9 +222,16 @@ if df is not None and not df.empty:
     else:
         month_df["연월표시"] = month_df["연월"].dt.strftime("%Y년%m월")
         
+        # 플랜트+업체별인 경우 조합 컬럼 생성
+        if group_option == "플랜트+업체별":
+            month_df["플랜트_업체"] = month_df["플랜트"].astype(str) + "_" + month_df["공급업체명"]
+        
         # 데이터테이블 표시
         if group_option == "전체":
             display_cols = ["연월표시", metric_name]
+            st.dataframe(month_df[display_cols], hide_index=True, use_container_width=True)
+        elif group_option == "플랜트+업체별":
+            display_cols = ["연월표시", "플랜트", "공급업체명", metric_name]
             st.dataframe(month_df[display_cols], hide_index=True, use_container_width=True)
         else:
             display_cols = ["연월표시", group_col, metric_name]
@@ -239,6 +246,18 @@ if df is not None and not df.empty:
                     x=alt.X("연월:T", title="연월"),
                     y=alt.Y(f"{metric_name}:Q", title=y_title),
                     tooltip=["연월표시:N", f"{metric_name}:Q"],
+                )
+                .interactive()
+            )
+        elif group_option == "플랜트+업체별":
+            chart = (
+                alt.Chart(month_df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("연월:T", title="연월"),
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
+                    tooltip=["연월표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"],
                 )
                 .interactive()
             )

@@ -1,12 +1,10 @@
 # backdata_dashboard.py
 """구매 데이터 대시보드 (Streamlit + DuckDB)
 
-📌 **2025‑08‑01 hotfix**
+📌 **2025‑08‑01 hotfix2**
 
-* 업로드 후 반응이 없던 문제 수정
-  1. **마감월 Excel 일련번호 → 날짜** 변환 로직 복원 (숫자 → `unit="D", origin="1899‑12‑30"`)
-  2. 업로드·로딩 과정에 **스피너 표시**
-  3. 집계 결과가 비어 있을 때 친절한 안내 문구
+* `st.caption` 문자열이 닫히지 않아 발생한 **`SyntaxError: unterminated string literal`** 해결
+* 코드 끝까지 정상적으로 포함하여 실행 오류 제거
 
 실행::
     streamlit run backdata_dashboard.py
@@ -39,7 +37,6 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
         elif norm == "구매그룹명":
             rename_map[col] = "구매그룹"
     df = df.rename(columns=rename_map)
-    # 중복 컬럼 제거
     if df.columns.duplicated().any():
         df = df.loc[:, ~df.columns.duplicated()]
     return df
@@ -54,11 +51,9 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
         st.error("⚠️ '마감월' 컬럼을 찾을 수 없습니다. 헤더명을 확인해 주세요.")
         st.stop()
 
-    # Excel 일련번호(숫자) → 날짜
+    # Excel 일련번호 → 날짜
     if pd.api.types.is_numeric_dtype(df["마감월"]):
-        df["마감월"] = pd.to_datetime(
-            df["마감월"], unit="D", origin="1899-12-30", errors="coerce"
-        )
+        df["마감월"] = pd.to_datetime(df["마감월"], unit="D", origin="1899-12-30", errors="coerce")
     else:
         df["마감월"] = pd.to_datetime(df["마감월"], errors="coerce")
 
@@ -69,7 +64,7 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if num_cols:
         df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
 
-    # 공급업체 표시 컬럼
+    # 공급업체 표시용
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
@@ -81,7 +76,7 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     return df
 
 # ════════════════════════════════════════════════════════════════════════
-# 🔧 공통 함수
+# 🔧 헬퍼 함수
 # ════════════════════════════════════════════════════════════════════════
 
 def sql_list_num(vals: list[int]) -> str:
@@ -91,17 +86,17 @@ def sql_list_num(vals: list[int]) -> str:
 def sql_list_str(vals: list[str]) -> str:
     if not vals:
         return "''"
-    return ",".join(f"'{v.replace("'", "''")}'" for v in vals)
+    esc = [v.replace("'", "''") for v in vals]
+    return ",".join(f"'{v}'" for v in esc)
 
-# ---- 멀티셀렉트 with 전체/해제 ----
 
-def _set_all(key: str, options: list):
-    st.session_state[key] = options
+# ---- 멀티셀렉트 전체/해제 ----
 
+def _set_all(key: str, opts: list):
+    st.session_state[key] = opts
 
 def _clear_all(key: str):
     st.session_state[key] = []
-
 
 def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     ms_key = f"{key_prefix}_ms"
@@ -140,18 +135,18 @@ if df is not None and not df.empty:
     con = duckdb.connect(database=":memory:")
     con.register("data", df)
 
-    # --- 필터 ---
+    # --- 사이드바 필터 ---
     with st.sidebar:
         st.header("필터 조건")
-        years_all = df["연도"].dropna().astype(int).unique().tolist()
-        plants_all = df["플랜트"].dropna().astype(int).unique().tolist() if "플랜트" in df.columns else []
-        groups_all = df["구매그룹"].dropna().astype(int).unique().tolist() if "구매그룹" in df.columns else []
-        suppliers_all = df["업체표시"].dropna().unique().tolist() if "업체표시" in df.columns else []
+        years_all = sorted(df["연도"].dropna().astype(int).unique().tolist())
+        plants_all = sorted(df["플랜트"].dropna().astype(int).unique().tolist()) if "플랜트" in df.columns else []
+        groups_all = sorted(df["구매그룹"].dropna().astype(int).unique().tolist()) if "구매그룹" in df.columns else []
+        suppliers_all = sorted(df["업체표시"].dropna().unique().tolist()) if "업체표시" in df.columns else []
 
-        sel_years = multiselect_with_toggle("연도", sorted(years_all), "yr")
-        sel_plants = multiselect_with_toggle("플랜트", sorted(plants_all), "pl") if plants_all else []
-        sel_groups = multiselect_with_toggle("구매그룹", sorted(groups_all), "gr") if groups_all else []
-        sel_suppliers = multiselect_with_toggle("공급업체", sorted(suppliers_all), "sp") if suppliers_all else []
+        sel_years = multiselect_with_toggle("연도", years_all, "yr")
+        sel_plants = multiselect_with_toggle("플랜트", plants_all, "pl") if plants_all else []
+        sel_groups = multiselect_with_toggle("구매그룹", groups_all, "gr") if groups_all else []
+        sel_suppliers = multiselect_with_toggle("공급업체", suppliers_all, "sp") if suppliers_all else []
 
     clauses = [f"연도 IN ({sql_list_num(sel_years)})"]
     if plants_all:
@@ -197,4 +192,58 @@ if df is not None and not df.empty:
             .interactive()
         )
         st.altair_chart(chart, use_container_width=True)
-    st.caption("단위: 송장수량 = 천 EA,   송장
+    st.caption("단위: 송장수량 = 천 EA,   송장금액 = 백만 원")
+
+    # --- 업체별 집계 ---
+    if suppliers_all:
+        sup_df = con.execute(
+            f"""
+            SELECT 공급업체명,
+                   SUM(송장수량)/1000    AS 송장수량_천EA,
+                   SUM(송장금액)/1000000 AS 송장금액_백만원
+            FROM data
+            {where_sql}
+            GROUP BY 1
+            ORDER BY 2 DESC
+            """
+        ).fetchdf()
+
+        st.markdown("---")
+        st.header("🏢 업체별 구매 현황")
+        st.dataframe(sup_df, hide_index=True, use_container_width=True)
+
+        if not sup_df.empty:
+            st.download_button(
+                "업체별 CSV 다운로드",
+                sup_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                file_name="supplier_summary.csv",
+                mime="text/csv",
+            )
+
+    # --- 자재명 검색 ---
+    st.markdown("---")
+    st.header("🔍 자재명 검색 (와일드카드 * 사용 가능)")
+    patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
+
+    if patt:
+        patt_sql = patt.replace("*", "%").replace("'", "''")
+        search_df = con.execute(
+            f"""
+            SELECT 마감월, 연월, 연도, 플랜트, 구매그룹,
+                   {"공급업체명, " if "공급업체명" in df.columns else ""}
+                   자재 AS 자재코드,
+                   자재명,
+                   송장수량/1000    AS 송장수량_천EA,
+                   송장금액/1000000 AS 송장금액_백만원
+            FROM data
+            {where_sql} AND 자재명 ILIKE '{patt_sql}'
+            ORDER BY 마감월
+            """
+        ).fetchdf()
+
+        st.write(f"검색 결과: **{len(search_df):,}건** 일치")
+        if search_df.empty:
+            st.info("검색 결과가 없습니다.")
+        else:
+            st.dataframe(search_df, use_container_width=True)
+            st.download

@@ -3,8 +3,8 @@
 
 - **파일 업로드 방식**: 앱 실행 후 CSV(인코딩 cp949)를 업로드합니다.
 - **필터**: 연도(마감월→연도), 플랜트, 구매그룹
-- **집계**: 연도별 송장수량(천 EA), 송장금액(백만 원)
-- **기능**: 자재명 부분 검색, 결과 CSV 다운로드(UTF‑8 BOM)
+- **집계**: 연도별 송장수량(천 EA), 송장금액(백만 원)
+- **기능**: 자재명 부분 검색, 결과 CSV 다운로드(UTF-8 BOM)
 
 실행::
     streamlit run backdata_dashboard.py
@@ -56,10 +56,14 @@ with st.sidebar:
 # 데이터 준비 (Session State 활용)
 # ---------------------------------------------------------------------------
 
-if uploaded_file:
-    if "df" not in st.session_state or st.session_state["file_id"] != uploaded_file.id:
+if uploaded_file is not None:
+    # 업로드된 파일 이름이 변경되면 새로 읽기
+    if (
+        "file_name" not in st.session_state
+        or st.session_state["file_name"] != uploaded_file.name
+    ):
         st.session_state["df"] = load_csv(uploaded_file)
-        st.session_state["file_id"] = uploaded_file.id  # 새 파일 업로드 여부 체크
+        st.session_state["file_name"] = uploaded_file.name
 
     df = st.session_state["df"]
 else:

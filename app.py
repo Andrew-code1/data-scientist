@@ -118,13 +118,9 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
-        if st.button("전체", key=f"{key_prefix}_all"):
-            st.session_state[ms_key] = options
-            st.rerun()
+        st.button("전체", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all")
     with col3:
-        if st.button("해제", key=f"{key_prefix}_none"):
-            st.session_state[ms_key] = []
-            st.rerun()
+        st.button("해제", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none")
     return sel
 
 # ════════════════════════════════════════════════════════════════════════

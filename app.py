@@ -22,7 +22,7 @@ import streamlit as st
 st.set_page_config(page_title="구매 데이터 대시보드", layout="wide")
 
 # ════════════════════════════════════════════════════════════════════════
-# 📚 데이터 로딩 & 전처리
+#  데이터 로딩 & 전처리
 # ════════════════════════════════════════════════════════════════════════
 
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -129,7 +129,7 @@ else:
     df = None
 
 # ════════════════════════════════════════════════════════════════════════
-# 🖥️ 대시보드
+#  대시보드
 # ════════════════════════════════════════════════════════════════════════
 if df is not None and not df.empty:
     con = duckdb.connect(database=":memory:")
@@ -160,39 +160,104 @@ if df is not None and not df.empty:
     where_sql = " WHERE " + " AND ".join(clauses)
 
     # --- 월별 시계열 ---
+    st.title("📈 월별 구매 추이")
+    
+    # 시계열 옵션 선택
+    col1, col2 = st.columns(2)
+    with col1:
+        metric_option = st.selectbox(
+            "표시할 지표",
+            ["송장금액", "송장수량"],
+            key="metric_select"
+        )
+    with col2:
+        group_option = st.selectbox(
+            "분석 단위",
+            ["전체", "플랜트별", "업체별"],
+            key="group_select"
+        )
+
+    # 지표별 설정
+    if metric_option == "송장금액":
+        metric_col = "SUM(송장금액)/1000000"
+        metric_name = "송장금액_백만원"
+        unit_text = "백만원"
+        y_title = "송장금액 (백만원)"
+    else:
+        metric_col = "SUM(송장수량)/1000"
+        metric_name = "송장수량_천EA"
+        unit_text = "천EA"
+        y_title = "송장수량 (천EA)"
+
+    # 그룹별 SQL 쿼리 생성
+    if group_option == "전체":
+        group_by_sql = ""
+        group_col = ""
+        select_cols = f"date_trunc('month', 마감월) AS 연월, {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1"
+    elif group_option == "플랜트별":
+        group_by_sql = "플랜트,"
+        group_col = "플랜트"
+        select_cols = f"date_trunc('month', 마감월) AS 연월, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2"
+    else:  # 업체별
+        group_by_sql = "공급업체명,"
+        group_col = "공급업체명"
+        select_cols = f"date_trunc('month', 마감월) AS 연월, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2"
+
+    # 데이터 조회
     month_df = con.execute(
         f"""
-        SELECT date_trunc('month', 마감월) AS 연월,
-               SUM(송장수량)/1000    AS 송장수량_천EA,
-               SUM(송장금액)/1000000 AS 송장금액_백만원
+        SELECT {select_cols}
         FROM data
         {where_sql}
-        GROUP BY 1
-        ORDER BY 1
+        {group_by_clause}
+        ORDER BY 1, 2
         """
     ).fetchdf()
 
-    month_df["연월표시"] = month_df["연월"].dt.strftime("%Y년%m월")
-
-    st.title("📈 월별 구매 추이")
     if month_df.empty:
         st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
     else:
-        st.dataframe(month_df[["연월표시", "송장수량_천EA", "송장금액_백만원"]], hide_index=True, use_container_width=True)
-        chart = (
-            alt.Chart(month_df)
-            .transform_fold(["송장수량_천EA", "송장금액_백만원"], as_=["지표", "값"])
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("연월:T", title="연월"),
-                y=alt.Y("값:Q", title="값"),
-                color="지표:N",
-                tooltip=["연월표시:N", "지표:N", "값:Q"],
+        month_df["연월표시"] = month_df["연월"].dt.strftime("%Y년%m월")
+        
+        # 데이터테이블 표시
+        if group_option == "전체":
+            display_cols = ["연월표시", metric_name]
+            st.dataframe(month_df[display_cols], hide_index=True, use_container_width=True)
+        else:
+            display_cols = ["연월표시", group_col, metric_name]
+            st.dataframe(month_df[display_cols], hide_index=True, use_container_width=True)
+
+        # 차트 생성
+        if group_option == "전체":
+            chart = (
+                alt.Chart(month_df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("연월:T", title="연월"),
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    tooltip=["연월표시:N", f"{metric_name}:Q"],
+                )
+                .interactive()
             )
-            .interactive()
-        )
+        else:
+            chart = (
+                alt.Chart(month_df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("연월:T", title="연월"),
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    color=alt.Color(f"{group_col}:N", title=group_col),
+                    tooltip=["연월표시:N", f"{group_col}:N", f"{metric_name}:Q"],
+                )
+                .interactive()
+            )
+        
         st.altair_chart(chart, use_container_width=True)
-    st.caption("단위: 송장수량 = 천 EA,   송장금액 = 백만 원")
+        
+    st.caption(f"단위: {metric_option} = {unit_text}")
 
     # --- 업체별 집계 ---
     if suppliers_all:
@@ -209,7 +274,7 @@ if df is not None and not df.empty:
         ).fetchdf()
 
         st.markdown("---")
-        st.header("🏢 업체별 구매 현황")
+        st.header(" 업체별 구매 현황")
         st.dataframe(sup_df, hide_index=True, use_container_width=True)
 
         if not sup_df.empty:
@@ -222,7 +287,7 @@ if df is not None and not df.empty:
 
     # --- 자재명 검색 ---
     st.markdown("---")
-    st.header("🔍 자재명 검색 (와일드카드 * 사용 가능)")
+    st.header(" 자재명 검색 (와일드카드 * 사용 가능)")
     patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
 
     if patt:
@@ -246,4 +311,9 @@ if df is not None and not df.empty:
             st.info("검색 결과가 없습니다.")
         else:
             st.dataframe(search_df, use_container_width=True)
-            st.download
+            st.download_button(
+                "검색결과 CSV 다운로드",
+                search_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                file_name="search_results.csv",
+                mime="text/csv",
+            )

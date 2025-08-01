@@ -243,7 +243,7 @@ if df is not None and not df.empty:
                 alt.Chart(month_df)
                 .mark_line(point=True)
                 .encode(
-                    x=alt.X("연월:T", title="연월"),
+                    x=alt.X("연월:T", title="연월", axis=alt.Axis(format="%Y년%m월", labelAngle=-45)),
                     y=alt.Y(f"{metric_name}:Q", title=y_title),
                     tooltip=["연월표시:N", f"{metric_name}:Q"],
                 )
@@ -254,7 +254,7 @@ if df is not None and not df.empty:
                 alt.Chart(month_df)
                 .mark_line(point=True)
                 .encode(
-                    x=alt.X("연월:T", title="연월"),
+                    x=alt.X("연월:T", title="연월", axis=alt.Axis(format="%Y년%m월", labelAngle=-45)),
                     y=alt.Y(f"{metric_name}:Q", title=y_title),
                     color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
                     tooltip=["연월표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"],
@@ -266,7 +266,7 @@ if df is not None and not df.empty:
                 alt.Chart(month_df)
                 .mark_line(point=True)
                 .encode(
-                    x=alt.X("연월:T", title="연월"),
+                    x=alt.X("연월:T", title="연월", axis=alt.Axis(format="%Y년%m월", labelAngle=-45)),
                     y=alt.Y(f"{metric_name}:Q", title=y_title),
                     color=alt.Color(f"{group_col}:N", title=group_col),
                     tooltip=["연월표시:N", f"{group_col}:N", f"{metric_name}:Q"],

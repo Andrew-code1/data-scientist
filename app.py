@@ -97,13 +97,13 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     ms_key = f"{key_prefix}_ms"
     if ms_key not in st.session_state:
         st.session_state[ms_key] = options
-    col1, col2, col3 = st.columns([3, 1, 1])
+    col1, col2, col3 = st.columns([5, 1, 1])
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
-        st.button("전체", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all")
+        st.button("전체", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", use_container_width=False)
     with col3:
-        st.button("해제", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none")
+        st.button("해제", on_click=_clear_all, args=(ms_key,), key=f"{key_prefix}_none", use_container_width=False)
     return sel
 
 # ════════════════════════════════════════════════════════════════════════

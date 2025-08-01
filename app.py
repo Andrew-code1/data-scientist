@@ -180,7 +180,7 @@ if df is not None and not df.empty:
     if not month_df.empty:
         chart = (
             alt.Chart(month_df)
-            .transform_fold(["송장수량_천EA", "송장금액_백만원"], as_["지표", "값"])
+            .transform_fold(["송장수량_천EA", "송장금액_백만원"], as_=["지표", "값"])
             .mark_line(point=True)
             .encode(
                 x=alt.X("연월:T", title="연월"),

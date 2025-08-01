@@ -21,10 +21,14 @@ st.markdown("""
 <style>
     /*  */
     .stSidebar .stButton > button {
-        height: 2rem !important;
-        font-size: 0.75rem !important;
-        padding: 0.2rem 0.4rem !important;
-        min-height: 2rem !important;
+        height: 2.2rem !important;
+        font-size: 0.6rem !important;
+        padding: 0.3rem 0.5rem !important;
+        min-height: 2.2rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        min-width: fit-content !important;
     }
 </style>
 """, unsafe_allow_html=True)

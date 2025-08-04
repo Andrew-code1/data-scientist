@@ -29,7 +29,7 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     rename_map: dict[str, str] = {}
     for col in df.columns:
         norm = col.replace(" ", "")
-        if norm in {"공급업체", "공급사명"}:
+        if norm in {"공급업체", "업체명"}:
             rename_map[col] = "공급업체명"
         elif norm in {"공급업체코드", "공급사코드"}:
             rename_map[col] = "공급업체코드"

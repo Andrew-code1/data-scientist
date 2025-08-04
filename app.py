@@ -315,15 +315,30 @@ if df is not None and not df.empty:
         
         # 디버깅: 이벤트 정보 표시
         if st.checkbox("디버그 모드 (이벤트 정보 표시)", key="debug_mode"):
+            st.write("Event object type:", type(event))
             st.write("Event object:", event)
-            if hasattr(event, 'selection'):
+            if event is not None and hasattr(event, 'selection'):
+                st.write("Selection type:", type(event.selection))
                 st.write("Selection:", event.selection)
+                if event.selection is not None:
+                    st.write("Selection keys:", list(event.selection.keys()) if isinstance(event.selection, dict) else "Not a dict")
+            else:
+                st.write("Event has no selection attribute")
         
-        # 클릭 이벤트 처리 (새로운 방식)
+        # 클릭 이벤트 처리 (안전한 방식)
         selected_data = None
-        if event and hasattr(event, 'selection') and event.selection:
-            if "point_select" in event.selection:
+        try:
+            if (event is not None and 
+                hasattr(event, 'selection') and 
+                event.selection is not None and 
+                isinstance(event.selection, dict) and
+                "point_select" in event.selection):
                 selected_data = event.selection["point_select"]
+                if selected_data:
+                    st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
+        except Exception as e:
+            if st.session_state.get("debug_mode", False):
+                st.error(f"Selection 처리 중 오류: {e}")
         
         # 대체 방안: 드롭다운으로 데이터 선택
         st.markdown("---")

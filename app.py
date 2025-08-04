@@ -127,7 +127,33 @@ if df is not None and not df.empty:
         groups_all = sorted(df["구매그룹"].dropna().astype(int).unique().tolist()) if "구매그룹" in df.columns else []
         suppliers_all = sorted(df["업체표시"].dropna().unique().tolist()) if "업체표시" in df.columns else []
 
-        sel_years = multiselect_with_toggle("연도", years_all, "yr")
+        # 연도 범위 선택
+        min_year, max_year = min(years_all), max(years_all)
+        
+        st.subheader("연도 범위")
+        year_filter_type = st.radio("선택 방식", ["슬라이더", "직접 입력"], horizontal=True)
+        
+        if year_filter_type == "슬라이더":
+            year_range = st.slider(
+                "연도 범위 선택",
+                min_value=min_year,
+                max_value=max_year,
+                value=(min_year, max_year),
+                step=1
+            )
+            start_year, end_year = year_range
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                start_year = st.number_input("시작 연도", min_value=min_year, max_value=max_year, value=min_year)
+            with col2:
+                end_year = st.number_input("끝 연도", min_value=min_year, max_value=max_year, value=max_year)
+        
+        # 선택된 연도 범위에 해당하는 연도들
+        sel_years = [year for year in years_all if start_year <= year <= end_year]
+        
+        st.write(f"선택된 연도: {start_year}년 ~ {end_year}년 ({len(sel_years)}개)")
+
         sel_plants = multiselect_with_toggle("플랜트", plants_all, "pl") if plants_all else []
         sel_groups = multiselect_with_toggle("구매그룹", groups_all, "gr") if groups_all else []
         sel_suppliers = multiselect_with_toggle("공급업체", suppliers_all, "sp") if suppliers_all else []

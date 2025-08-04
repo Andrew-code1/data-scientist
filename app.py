@@ -367,17 +367,17 @@ if df is not None and not df.empty:
                 if group_option != "전체":
                     if group_option == "플랜트별":
                         available_groups = time_df[time_df[time_name] == selected_time_value]["플랜트"].unique()
-                        selected_group = st.selectbox("플랜트 선택", options=available_groups, key="group_select")
+                        selected_group = st.selectbox("플랜트 선택", options=available_groups, key="plant_select")
                         info_text = f"선택된 기간: {selected_time_display}, 플랜트: {selected_group}"
                     elif group_option == "업체별":
                         available_groups = time_df[time_df[time_name] == selected_time_value]["공급업체명"].unique()
-                        selected_group = st.selectbox("업체 선택", options=available_groups, key="group_select")
+                        selected_group = st.selectbox("업체 선택", options=available_groups, key="supplier_select")
                         info_text = f"선택된 기간: {selected_time_display}, 업체: {selected_group}"
                     else:  # 플랜트+업체별
                         filtered_df = time_df[time_df[time_name] == selected_time_value]
                         available_combos = filtered_df[["플랜트", "공급업체명"]].drop_duplicates()
                         combo_options = [f"플랜트{row['플랜트']}-{row['공급업체명']}" for _, row in available_combos.iterrows()]
-                        selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="group_select")
+                        selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="combo_select")
                         plant_val = int(selected_combo.split('-')[0].replace('플랜트', ''))
                         supplier_val = selected_combo.split('-', 1)[1]
                         info_text = f"선택된 기간: {selected_time_display}, 플랜트: {plant_val}, 업체: {supplier_val}"

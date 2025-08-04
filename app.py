@@ -164,8 +164,13 @@ if df is not None and not df.empty:
     if groups_all:
         clauses.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
     if suppliers_all:
-        names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
-        clauses.append(f"공급업체명 IN ({sql_list_str(names)})")
+        # 업체코드가 있는 경우 업체코드로 필터링, 없는 경우 업체명으로 필터링
+        if "공급업체코드" in df.columns:
+            codes = [s.split("_", 1)[0] if "_" in s else s for s in sel_suppliers]
+            clauses.append(f"공급업체코드 IN ({sql_list_str(codes)})")
+        else:
+            names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
+            clauses.append(f"공급업체명 IN ({sql_list_str(names)})")
 
     where_sql = " WHERE " + " AND ".join(clauses)
 
@@ -407,8 +412,13 @@ if df is not None and not df.empty:
                 if groups_all and sel_groups:
                     additional_filters.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
                 if suppliers_all and sel_suppliers:
-                    names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
-                    additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
+                    # 업체코드가 있는 경우 업체코드로 필터링, 없는 경우 업체명으로 필터링
+                    if "공급업체코드" in df.columns:
+                        codes = [s.split("_", 1)[0] if "_" in s else s for s in sel_suppliers]
+                        additional_filters.append(f"공급업체코드 IN ({sql_list_str(codes)})")
+                    else:
+                        names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
+                        additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
                 
                 # 그룹별 추가 필터
                 if group_option == "플랜트별":
@@ -497,6 +507,7 @@ if df is not None and not df.empty:
                    {"공급업체명, " if "공급업체명" in df.columns else ""}
                    자재 AS 자재코드,
                    자재명,
+                   단가,
                    송장수량/1000    AS 송장수량_천EA,
                    송장금액/1000000 AS 송장금액_백만원
             FROM data

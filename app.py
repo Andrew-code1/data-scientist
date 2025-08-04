@@ -267,7 +267,7 @@ if df is not None and not df.empty:
             st.dataframe(time_df[display_cols], hide_index=True, use_container_width=True)
 
         # 차트 생성 - 클릭 이벤트 추가
-        click = alt.selection_single()
+        click = alt.selection_point(name="point_select")
         
         if time_unit == "월별":
             x_encoding = alt.X(f"{time_name}:T", title=time_unit, axis=alt.Axis(format=time_format, labelAngle=-45))
@@ -283,8 +283,7 @@ if df is not None and not df.empty:
                     y=alt.Y(f"{metric_name}:Q", title=y_title),
                     tooltip=["시간표시:N", f"{metric_name}:Q"],
                 )
-                .add_selection(click)
-                .interactive()
+                .add_params(click)
             )
         elif group_option == "플랜트+업체별":
             chart = (
@@ -296,8 +295,7 @@ if df is not None and not df.empty:
                     color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
                     tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"],
                 )
-                .add_selection(click)
-                .interactive()
+                .add_params(click)
             )
         else:
             chart = (
@@ -309,88 +307,131 @@ if df is not None and not df.empty:
                     color=alt.Color(f"{group_col}:N", title=group_col),
                     tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"],
                 )
-                .add_selection(click)
-                .interactive()
+                .add_params(click)
             )
         
-        clicked_data = st.altair_chart(chart, use_container_width=True, on_select="rerun")
+        # 차트 표시 및 클릭 이벤트 처리
+        event = st.altair_chart(chart, use_container_width=True, key="main_chart")
         
-        # 클릭된 데이터 포인트 처리
-        if clicked_data.selection and "click" in clicked_data.selection:
-            selected_point = clicked_data.selection["click"]
-            if selected_point:
-                st.info("💡 차트의 점을 클릭하면 해당 데이터의 상세 Raw 데이터를 볼 수 있습니다!")
-                
-                # 선택된 데이터 포인트 정보 추출
-                if group_option == "전체":
-                    time_value = selected_point[0][time_name]
-                    filter_conditions = f"{time_name} = '{time_value}'"
-                    info_text = f"선택된 기간: {time_value}"
-                elif group_option == "플랜트별":
-                    time_value = selected_point[0][time_name]
-                    plant_value = selected_point[0]["플랜트"]
-                    filter_conditions = f"{time_name} = '{time_value}' AND 플랜트 = {plant_value}"
-                    info_text = f"선택된 기간: {time_value}, 플랜트: {plant_value}"
-                elif group_option == "업체별":
-                    time_value = selected_point[0][time_name]
-                    supplier_value = selected_point[0]["공급업체명"]
-                    filter_conditions = f"{time_name} = '{time_value}' AND 공급업체명 = '{supplier_value}'"
-                    info_text = f"선택된 기간: {time_value}, 업체: {supplier_value}"
-                else:  # 플랜트+업체별
-                    time_value = selected_point[0][time_name]
-                    plant_value = selected_point[0]["플랜트"]
-                    supplier_value = selected_point[0]["공급업체명"]
-                    filter_conditions = f"{time_name} = '{time_value}' AND 플랜트 = {plant_value} AND 공급업체명 = '{supplier_value}'"
-                    info_text = f"선택된 기간: {time_value}, 플랜트: {plant_value}, 업체: {supplier_value}"
-                
-                # Raw 데이터 조회
+        # 디버깅: 이벤트 정보 표시
+        if st.checkbox("디버그 모드 (이벤트 정보 표시)", key="debug_mode"):
+            st.write("Event object:", event)
+            if hasattr(event, 'selection'):
+                st.write("Selection:", event.selection)
+        
+        # 클릭 이벤트 처리 (새로운 방식)
+        selected_data = None
+        if event and hasattr(event, 'selection') and event.selection:
+            if "point_select" in event.selection:
+                selected_data = event.selection["point_select"]
+        
+        # 대체 방안: 드롭다운으로 데이터 선택
+        st.markdown("---")
+        st.subheader("📊 상세 Raw 데이터 조회")
+        
+        with st.expander("데이터 선택 방식", expanded=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # 시간 선택
+                available_times = time_df[time_name].unique()
                 if time_unit == "월별":
-                    time_filter = f"date_trunc('month', 마감월) = '{time_value}'"
+                    time_options = [(t.strftime(time_format), t) for t in available_times]
                 else:
-                    time_filter = f"연도 = {time_value}"
+                    time_options = [(f"{int(t)}년", t) for t in available_times]
                 
+                selected_time_display = st.selectbox(
+                    f"{time_unit} 선택",
+                    options=[opt[0] for opt in time_options],
+                    key="time_select"
+                )
+                selected_time_value = dict(time_options)[selected_time_display]
+            
+            with col2:
+                # 그룹 선택 (필요한 경우)
+                if group_option != "전체":
+                    if group_option == "플랜트별":
+                        available_groups = time_df[time_df[time_name] == selected_time_value]["플랜트"].unique()
+                        selected_group = st.selectbox("플랜트 선택", options=available_groups, key="group_select")
+                        info_text = f"선택된 기간: {selected_time_display}, 플랜트: {selected_group}"
+                    elif group_option == "업체별":
+                        available_groups = time_df[time_df[time_name] == selected_time_value]["공급업체명"].unique()
+                        selected_group = st.selectbox("업체 선택", options=available_groups, key="group_select")
+                        info_text = f"선택된 기간: {selected_time_display}, 업체: {selected_group}"
+                    else:  # 플랜트+업체별
+                        filtered_df = time_df[time_df[time_name] == selected_time_value]
+                        available_combos = filtered_df[["플랜트", "공급업체명"]].drop_duplicates()
+                        combo_options = [f"플랜트{row['플랜트']}-{row['공급업체명']}" for _, row in available_combos.iterrows()]
+                        selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="group_select")
+                        plant_val = int(selected_combo.split('-')[0].replace('플랜트', ''))
+                        supplier_val = selected_combo.split('-', 1)[1]
+                        info_text = f"선택된 기간: {selected_time_display}, 플랜트: {plant_val}, 업체: {supplier_val}"
+                else:
+                    info_text = f"선택된 기간: {selected_time_display}"
+            
+            # Raw 데이터 조회 버튼
+            if st.button("상세 데이터 조회", type="primary"):
+                # Raw 데이터 쿼리 생성
+                if time_unit == "월별":
+                    time_filter = f"date_trunc('month', 마감월) = '{selected_time_value}'"
+                else:
+                    time_filter = f"연도 = {selected_time_value}"
+                
+                # 기본 쿼리
                 raw_data_query = f"""
                 SELECT 마감월, 플랜트, 구매그룹, 공급업체명, 자재 AS 자재코드, 자재명,
                        송장수량, 송장금액, 단가
                 FROM data
-                {where_sql.replace(f'연도 IN ({sql_list_num(sel_years)})', time_filter)}
+                WHERE {time_filter}
                 """
                 
+                # 기존 필터 조건 추가 (연도 필터 제외)
+                additional_filters = []
+                if plants_all and sel_plants:
+                    additional_filters.append(f"플랜트 IN ({sql_list_num(sel_plants)})")
+                if groups_all and sel_groups:
+                    additional_filters.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
+                if suppliers_all and sel_suppliers:
+                    names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
+                    additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
+                
+                # 그룹별 추가 필터
                 if group_option == "플랜트별":
-                    raw_data_query += f" AND 플랜트 = {plant_value}"
+                    additional_filters.append(f"플랜트 = {selected_group}")
                 elif group_option == "업체별":
-                    raw_data_query += f" AND 공급업체명 = '{supplier_value}'"
+                    additional_filters.append(f"공급업체명 = '{selected_group}'")
                 elif group_option == "플랜트+업체별":
-                    raw_data_query += f" AND 플랜트 = {plant_value} AND 공급업체명 = '{supplier_value}'"
+                    additional_filters.append(f"플랜트 = {plant_val} AND 공급업체명 = '{supplier_val}'")
+                
+                if additional_filters:
+                    raw_data_query += " AND " + " AND ".join(additional_filters)
                 
                 raw_data_query += " ORDER BY 마감월, 공급업체명, 자재코드"
                 
+                # 쿼리 실행
                 raw_df = con.execute(raw_data_query).fetchdf()
                 
-                # 상세 데이터 표시
-                with st.expander(f"📊 상세 Raw 데이터 ({info_text})", expanded=True):
-                    if not raw_df.empty:
-                        st.write(f"**총 {len(raw_df):,}건의 데이터**")
-                        st.dataframe(raw_df, use_container_width=True, hide_index=True)
-                        
-                        # 요약 정보
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("총 송장금액", f"{raw_df['송장금액'].sum():,.0f}원")
-                        with col2:
-                            st.metric("총 송장수량", f"{raw_df['송장수량'].sum():,.0f}")
-                        
-                        # CSV 다운로드
-                        st.download_button(
-                            "상세 데이터 CSV 다운로드",
-                            raw_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
-                            file_name=f"raw_data_{info_text.replace(' ', '_').replace(':', '')}.csv",
-                            mime="text/csv",
-                        )
-                    else:
-                        st.warning("해당 조건에 맞는 상세 데이터가 없습니다.")
-        else:
-            st.info("💡 차트의 점을 클릭하면 해당 데이터의 상세 Raw 데이터를 볼 수 있습니다!")
+                # 결과 표시
+                if not raw_df.empty:
+                    st.success(f"**총 {len(raw_df):,}건의 데이터를 찾았습니다!**")
+                    st.dataframe(raw_df, use_container_width=True, hide_index=True)
+                    
+                    # 요약 정보
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("총 송장금액", f"{raw_df['송장금액'].sum():,.0f}원")
+                    with col2:
+                        st.metric("총 송장수량", f"{raw_df['송장수량'].sum():,.0f}")
+                    
+                    # CSV 다운로드
+                    st.download_button(
+                        "상세 데이터 CSV 다운로드",
+                        raw_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                        file_name=f"raw_data_{info_text.replace(' ', '_').replace(':', '').replace('-', '_')}.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.warning("해당 조건에 맞는 상세 데이터가 없습니다.")
         
     st.caption(f"단위: {metric_option} = {unit_text}")
 

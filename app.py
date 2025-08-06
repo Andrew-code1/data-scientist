@@ -464,7 +464,7 @@ if df is not None and not df.empty:
                     supplier_code_select = """
                        CASE 
                            WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                           ELSE CAST(CAST(공급업체코드 AS FLOAT) AS INTEGER)
+                           ELSE CAST(CAST(공급업체코드 AS FLOAT) AS BIGINT)
                        END AS 공급업체코드,
                     """
                 
@@ -558,7 +558,7 @@ if df is not None and not df.empty:
             supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS INTEGER)
+                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS BIGINT)
                    END AS 공급업체코드,
             """
             group_by_clause = "1, 2"
@@ -633,7 +633,7 @@ if df is not None and not df.empty:
             search_supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS INTEGER)
+                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS BIGINT)
                    END AS 공급업체코드,
             """
         

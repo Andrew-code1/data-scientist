@@ -486,21 +486,43 @@ if df is not None and not df.empty:
             )
 
     st.markdown("---")
-    st.header(" 자재명 검색 (와일드카드 * 사용 가능)")
-    patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
+    st.header("🔍 자재 검색 (와일드카드 * 사용 가능)")
+    col1, col2 = st.columns(2)
+    with col1:
+        material_name_patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
+    with col2:
+        material_code_patt = st.text_input("자재코드 패턴", placeholder="예) *1234567*")
 
-    if patt:
-        # 와일드카드가 없으면 자동으로 추가
-        if "*" not in patt:
-            if " " in patt:
+    # 패턴 강화 함수
+    def enhance_pattern(pattern):
+        if "*" not in pattern:
+            if " " in pattern:
                 # 띄어쓰기가 있으면 각 단어에 와일드카드 적용
-                words = patt.split()
-                patt = "*" + "*".join(words) + "*"
+                words = pattern.split()
+                pattern = "*" + "*".join(words) + "*"
             else:
                 # 단일 단어도 양쪽에 와일드카드 추가
-                patt = "*" + patt + "*"
+                pattern = "*" + pattern + "*"
+        return pattern.replace("*", "%").replace("'", "''")
+
+    # 검색 조건 생성
+    search_conditions = []
+    search_info = []
+    
+    if material_name_patt:
+        enhanced_name_patt = enhance_pattern(material_name_patt)
+        search_conditions.append(f"자재명 ILIKE '{enhanced_name_patt}'")
+        search_info.append(f"자재명: {material_name_patt}")
+    
+    if material_code_patt:
+        enhanced_code_patt = enhance_pattern(material_code_patt)
+        search_conditions.append(f"자재 ILIKE '{enhanced_code_patt}'")
+        search_info.append(f"자재코드: {material_code_patt}")
+
+    if search_conditions:
+        # AND 조건으로 검색 (둘 다 입력된 경우) 또는 개별 조건
+        search_where = " AND ".join(search_conditions)
         
-        patt_sql = patt.replace("*", "%").replace("'", "''")
         search_df = con.execute(
             f"""
             SELECT 마감월, 연월, 연도, 플랜트, 구매그룹,
@@ -511,12 +533,16 @@ if df is not None and not df.empty:
                    송장수량/1000    AS 송장수량_천EA,
                    송장금액/1000000 AS 송장금액_백만원
             FROM data
-            {where_sql} AND 자재명 ILIKE '{patt_sql}'
+            {where_sql} AND ({search_where})
             ORDER BY 마감월
             """
         ).fetchdf()
 
+        # 검색 조건 표시
+        search_info_text = ", ".join(search_info)
+        st.write(f"검색 조건: {search_info_text}")
         st.write(f"검색 결과: **{len(search_df):,}건** 일치")
+        
         if search_df.empty:
             st.info("검색 결과가 없습니다.")
         else:

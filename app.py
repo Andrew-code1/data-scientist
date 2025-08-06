@@ -421,7 +421,7 @@ if df is not None and not df.empty:
                 # 기본 쿼리
                 raw_data_query = f"""
                 SELECT 마감월, 플랜트, 구매그룹, 
-                       {"공급업체코드, " if "공급업체코드" in df.columns else ""}
+                       {"CAST(공급업체코드 AS INTEGER) AS 공급업체코드, " if "공급업체코드" in df.columns else ""}
                        공급업체명, 자재 AS 자재코드, 자재명,
                        송장수량, 송장금액, 단가
                 FROM data
@@ -487,7 +487,7 @@ if df is not None and not df.empty:
     if suppliers_all:
         sup_df = con.execute(
             f"""
-            SELECT {"공급업체코드, " if "공급업체코드" in df.columns else ""}
+            SELECT {"CAST(공급업체코드 AS INTEGER) AS 공급업체코드, " if "공급업체코드" in df.columns else ""}
                    공급업체명,
                    SUM(송장수량)/1000    AS 송장수량_천EA,
                    SUM(송장금액)/1000000 AS 송장금액_백만원
@@ -551,7 +551,7 @@ if df is not None and not df.empty:
         search_df = con.execute(
             f"""
             SELECT 마감월, 연월, 연도, 플랜트, 구매그룹,
-                   {"공급업체코드, " if "공급업체코드" in df.columns else ""}
+                   {"CAST(공급업체코드 AS INTEGER) AS 공급업체코드, " if "공급업체코드" in df.columns else ""}
                    {"공급업체명, " if "공급업체명" in df.columns else ""}
                    자재 AS 자재코드,
                    자재명,

@@ -123,9 +123,10 @@ if df is not None and not df.empty:
     with st.sidebar:
         st.header("필터 조건")
         years_all = sorted(df["연도"].dropna().astype(int).unique().tolist())
-        plants_all = sorted(df["플랜트"].dropna().astype(int).unique().tolist()) if "플랜트" in df.columns else []
-        groups_all = sorted(df["구매그룹"].dropna().astype(int).unique().tolist()) if "구매그룹" in df.columns else []
-        suppliers_all = sorted(df["업체표시"].dropna().unique().tolist()) if "업체표시" in df.columns else []
+        plants_all = sorted([x for x in df["플랜트"].dropna().astype(int).unique() if x > 0]) if "플랜트" in df.columns else []
+        groups_all = sorted([x for x in df["구매그룹"].dropna().astype(int).unique() if x > 0]) if "구매그룹" in df.columns else []
+        suppliers_all = sorted([x for x in df["업체표시"].dropna().unique() 
+                                if str(x).strip() != '' and 'nan' not in str(x).lower() and not str(x).startswith('0nan')]) if "업체표시" in df.columns else []
 
         # 연도 범위 선택
         min_year, max_year = min(years_all), max(years_all)
@@ -318,18 +319,6 @@ if df is not None and not df.empty:
         # 차트 표시 및 클릭 이벤트 처리
         event = st.altair_chart(chart, use_container_width=True, key="main_chart")
         
-        # 디버깅: 이벤트 정보 표시
-        if st.checkbox("디버그 모드 (이벤트 정보 표시)", key="debug_mode"):
-            st.write("Event object type:", type(event))
-            st.write("Event object:", event)
-            if event is not None and hasattr(event, 'selection'):
-                st.write("Selection type:", type(event.selection))
-                st.write("Selection:", event.selection)
-                if event.selection is not None:
-                    st.write("Selection keys:", list(event.selection.keys()) if isinstance(event.selection, dict) else "Not a dict")
-            else:
-                st.write("Event has no selection attribute")
-        
         # 클릭 이벤트 처리 (안전한 방식)
         selected_data = None
         try:
@@ -342,8 +331,7 @@ if df is not None and not df.empty:
                 if selected_data:
                     st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
         except Exception as e:
-            if st.session_state.get("debug_mode", False):
-                st.error(f"Selection 처리 중 오류: {e}")
+            pass
         
         # 대체 방안: 드롭다운으로 데이터 선택
         st.markdown("---")

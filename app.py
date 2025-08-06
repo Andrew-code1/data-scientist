@@ -516,7 +516,7 @@ if df is not None and not df.empty:
     
     if material_code_patt:
         enhanced_code_patt = enhance_pattern(material_code_patt)
-        search_conditions.append(f"자재 ILIKE '{enhanced_code_patt}'")
+        search_conditions.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
         search_info.append(f"자재코드: {material_code_patt}")
 
     if search_conditions:

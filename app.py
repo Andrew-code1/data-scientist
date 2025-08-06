@@ -65,8 +65,7 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
-        # 숫자를 정수로 변환 후 문자열로 변환하여 소수점 제거
-        df["공급업체코드"] = pd.to_numeric(df["공급업체코드"], errors="coerce").fillna(0).astype(int).astype(str)
+        df["공급업체코드"] = df["공급업체코드"].astype(str).str.strip()
         df["업체표시"] = df["공급업체코드"].str.zfill(5) + "_" + df["공급업체명"].fillna("")
     elif "공급업체명" in df.columns:
         df["업체표시"] = df["공급업체명"]
@@ -85,17 +84,12 @@ def sql_list_str(vals: list[str]) -> str:
     return ",".join(f"'{v}'" for v in esc)
 
 
-def get_supplier_filter_condition(df: pd.DataFrame, sel_suppliers: list[str]) -> str:
-    """업체 필터 조건을 생성하는 공통 함수"""
-    if "공급업체코드" in df.columns:
-        codes = [s.split("_", 1)[0] if "_" in s else s for s in sel_suppliers]
-        return f"공급업체코드 IN ({sql_list_str(codes)})"
-    else:
-        names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
-        return f"공급업체명 IN ({sql_list_str(names)})"
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
+
+def _clear_all(key: str):
+    st.session_state[key] = []
 
 def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     ms_key = f"{key_prefix}_ms"
@@ -129,10 +123,9 @@ if df is not None and not df.empty:
     with st.sidebar:
         st.header("필터 조건")
         years_all = sorted(df["연도"].dropna().astype(int).unique().tolist())
-        plants_all = sorted([x for x in df["플랜트"].dropna().astype(int).unique() if x > 0]) if "플랜트" in df.columns else []
-        groups_all = sorted([x for x in df["구매그룹"].dropna().astype(int).unique() if x > 0]) if "구매그룹" in df.columns else []
-        suppliers_all = sorted([x for x in df["업체표시"].dropna().unique() 
-                                if str(x).strip() != '' and 'nan' not in str(x).lower() and not str(x).startswith('0nan')]) if "업체표시" in df.columns else []
+        plants_all = sorted(df["플랜트"].dropna().astype(int).unique().tolist()) if "플랜트" in df.columns else []
+        groups_all = sorted(df["구매그룹"].dropna().astype(int).unique().tolist()) if "구매그룹" in df.columns else []
+        suppliers_all = sorted(df["업체표시"].dropna().unique().tolist()) if "업체표시" in df.columns else []
 
         # 연도 범위 선택
         min_year, max_year = min(years_all), max(years_all)
@@ -171,7 +164,13 @@ if df is not None and not df.empty:
     if groups_all:
         clauses.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
     if suppliers_all:
-        clauses.append(get_supplier_filter_condition(df, sel_suppliers))
+        # 업체코드가 있는 경우 업체코드로 필터링, 없는 경우 업체명으로 필터링
+        if "공급업체코드" in df.columns:
+            codes = [s.split("_", 1)[0] if "_" in s else s for s in sel_suppliers]
+            clauses.append(f"공급업체코드 IN ({sql_list_str(codes)})")
+        else:
+            names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
+            clauses.append(f"공급업체명 IN ({sql_list_str(names)})")
 
     where_sql = " WHERE " + " AND ".join(clauses)
 
@@ -272,7 +271,9 @@ if df is not None and not df.empty:
             display_cols = ["시간표시", group_col, metric_name]
             st.dataframe(time_df[display_cols], hide_index=True, use_container_width=True)
 
-        # 차트 생성
+        # 차트 생성 - 클릭 이벤트 추가
+        click = alt.selection_point(name="point_select")
+        
         if time_unit == "월별":
             x_encoding = alt.X(f"{time_name}:T", title=time_unit, axis=alt.Axis(format=time_format, labelAngle=-45))
         else:
@@ -287,6 +288,7 @@ if df is not None and not df.empty:
                     y=alt.Y(f"{metric_name}:Q", title=y_title),
                     tooltip=["시간표시:N", f"{metric_name}:Q"],
                 )
+                .add_params(click)
             )
         elif group_option == "플랜트+업체별":
             chart = (
@@ -298,6 +300,7 @@ if df is not None and not df.empty:
                     color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
                     tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"],
                 )
+                .add_params(click)
             )
         else:
             chart = (
@@ -309,10 +312,38 @@ if df is not None and not df.empty:
                     color=alt.Color(f"{group_col}:N", title=group_col),
                     tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"],
                 )
+                .add_params(click)
             )
         
-        # 차트 표시
-        st.altair_chart(chart, use_container_width=True)
+        # 차트 표시 및 클릭 이벤트 처리
+        event = st.altair_chart(chart, use_container_width=True, key="main_chart")
+        
+        # 디버깅: 이벤트 정보 표시
+        if st.checkbox("디버그 모드 (이벤트 정보 표시)", key="debug_mode"):
+            st.write("Event object type:", type(event))
+            st.write("Event object:", event)
+            if event is not None and hasattr(event, 'selection'):
+                st.write("Selection type:", type(event.selection))
+                st.write("Selection:", event.selection)
+                if event.selection is not None:
+                    st.write("Selection keys:", list(event.selection.keys()) if isinstance(event.selection, dict) else "Not a dict")
+            else:
+                st.write("Event has no selection attribute")
+        
+        # 클릭 이벤트 처리 (안전한 방식)
+        selected_data = None
+        try:
+            if (event is not None and 
+                hasattr(event, 'selection') and 
+                event.selection is not None and 
+                isinstance(event.selection, dict) and
+                "point_select" in event.selection):
+                selected_data = event.selection["point_select"]
+                if selected_data:
+                    st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
+        except Exception as e:
+            if st.session_state.get("debug_mode", False):
+                st.error(f"Selection 처리 중 오류: {e}")
         
         # 대체 방안: 드롭다운으로 데이터 선택
         st.markdown("---")
@@ -404,7 +435,13 @@ if df is not None and not df.empty:
                 if groups_all and sel_groups:
                     additional_filters.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
                 if suppliers_all and sel_suppliers:
-                    additional_filters.append(get_supplier_filter_condition(df, sel_suppliers))
+                    # 업체코드가 있는 경우 업체코드로 필터링, 없는 경우 업체명으로 필터링
+                    if "공급업체코드" in df.columns:
+                        codes = [s.split("_", 1)[0] if "_" in s else s for s in sel_suppliers]
+                        additional_filters.append(f"공급업체코드 IN ({sql_list_str(codes)})")
+                    else:
+                        names = [s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers]
+                        additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
                 
                 # 그룹별 추가 필터
                 if group_option == "플랜트별":

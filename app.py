@@ -65,22 +65,20 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
-        # 안전한 공급업체코드 처리
-        df["공급업체코드_numeric"] = pd.to_numeric(df["공급업체코드"], errors="coerce")
-        # 유효한 숫자만 처리, 나머지는 빈 문자열로 설정
-        df["공급업체코드"] = df["공급업체코드_numeric"].apply(
-            lambda x: str(int(x)) if pd.notna(x) and x > 0 else ""
+        # 공급업체코드 안전하게 처리 - 원본 값 보존하면서 정리
+        df["공급업체코드"] = df["공급업체코드"].astype(str).str.strip()
+        # 빈 값, nan, None 등만 공백으로 처리하고 나머지는 보존
+        df["공급업체코드"] = df["공급업체코드"].apply(
+            lambda x: "" if pd.isna(x) or str(x).lower() in ['nan', 'none', ''] or str(x).strip() == '' else str(x).strip()
         )
         # 공급업체코드가 있는 경우만 업체표시 생성
         df["업체표시"] = df.apply(
             lambda row: (
-                row["공급업체코드"].zfill(5) + "_" + str(row["공급업체명"]).strip()
+                str(row["공급업체코드"]) + "_" + str(row["공급업체명"]).strip()
                 if row["공급업체코드"] and str(row["공급업체명"]).strip() and str(row["공급업체명"]) != "nan"
                 else str(row["공급업체명"]).strip() if str(row["공급업체명"]) != "nan" else ""
             ), axis=1
         )
-        # 임시 컬럼 제거
-        df = df.drop(columns=["공급업체코드_numeric"])
     elif "공급업체명" in df.columns:
         df["업체표시"] = df["공급업체명"]
 
@@ -466,7 +464,7 @@ if df is not None and not df.empty:
                     supplier_code_select = """
                        CASE 
                            WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                           ELSE TRY_CAST(공급업체코드 AS INTEGER)
+                           ELSE 공급업체코드
                        END AS 공급업체코드,
                     """
                 
@@ -560,7 +558,7 @@ if df is not None and not df.empty:
             supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE TRY_CAST(공급업체코드 AS INTEGER)
+                       ELSE 공급업체코드
                    END AS 공급업체코드,
             """
             group_by_clause = "1, 2"
@@ -635,13 +633,13 @@ if df is not None and not df.empty:
             search_supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE TRY_CAST(공급업체코드 AS INTEGER)
+                       ELSE 공급업체코드
                    END AS 공급업체코드,
             """
         
         search_df = con.execute(
             f"""
-            SELECT 마감월, 연월, 연도, 플랜트, 구매그룹,{search_supplier_code_select}
+            SELECT strftime(마감월, '%Y-%m') AS 마감월, strftime(연월, '%Y-%m') AS 연월, 연도, 플랜트, 구매그룹,{search_supplier_code_select}
                    {"공급업체명, " if "공급업체명" in df.columns else ""}
                    자재 AS 자재코드,
                    자재명,

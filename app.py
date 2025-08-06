@@ -464,12 +464,12 @@ if df is not None and not df.empty:
                     supplier_code_select = """
                        CASE 
                            WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                           ELSE 공급업체코드
+                           ELSE CAST(CAST(공급업체코드 AS FLOAT) AS INTEGER)
                        END AS 공급업체코드,
                     """
                 
                 raw_data_query = f"""
-                SELECT 마감월, 플랜트, 구매그룹,{supplier_code_select}
+                SELECT strftime(마감월, '%Y-%m') AS 마감월, 플랜트, 구매그룹,{supplier_code_select}
                        공급업체명, 자재 AS 자재코드, 자재명,
                        송장수량, 송장금액, 단가
                 FROM data
@@ -558,7 +558,7 @@ if df is not None and not df.empty:
             supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE 공급업체코드
+                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS INTEGER)
                    END AS 공급업체코드,
             """
             group_by_clause = "1, 2"
@@ -633,7 +633,7 @@ if df is not None and not df.empty:
             search_supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE 공급업체코드
+                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS INTEGER)
                    END AS 공급업체코드,
             """
         

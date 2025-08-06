@@ -381,11 +381,32 @@ if df is not None and not df.empty:
                     else:  # 플랜트+업체별
                         filtered_df = time_df[time_df[time_name] == selected_time_value]
                         available_combos = filtered_df[["플랜트", "공급업체명"]].drop_duplicates()
-                        combo_options = [f"플랜트{row['플랜트']}-{row['공급업체명']}" for _, row in available_combos.iterrows()]
-                        selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="combo_select")
-                        plant_val = int(selected_combo.split('-')[0].replace('플랜트', ''))
-                        supplier_val = selected_combo.split('-', 1)[1]
-                        info_text = f"선택된 기간: {selected_time_display}, 플랜트: {plant_val}, 업체: {supplier_val}"
+                        combo_options = []
+                        for _, row in available_combos.iterrows():
+                            plant = row['플랜트']
+                            supplier = row['공급업체명']
+                            if pd.notna(plant) and pd.notna(supplier):
+                                try:
+                                    plant_int = int(plant)
+                                    combo_options.append(f"플랜트{plant_int}-{supplier}")
+                                except (ValueError, TypeError):
+                                    continue
+                        if combo_options:
+                            selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="combo_select")
+                            try:
+                                plant_str = selected_combo.split('-')[0].replace('플랜트', '')
+                                plant_val = int(plant_str) if plant_str else 0
+                                supplier_val = selected_combo.split('-', 1)[1] if '-' in selected_combo else ""
+                                info_text = f"선택된 기간: {selected_time_display}, 플랜트: {plant_val}, 업체: {supplier_val}"
+                            except (ValueError, IndexError, AttributeError):
+                                plant_val = 0
+                                supplier_val = ""
+                                info_text = f"선택된 기간: {selected_time_display}, 플랜트+업체 데이터 오류"
+                        else:
+                            st.warning("해당 기간에 플랜트+업체 데이터가 없습니다.")
+                            plant_val = 0
+                            supplier_val = ""
+                            info_text = f"선택된 기간: {selected_time_display}, 데이터 없음"
                 else:
                     info_text = f"선택된 기간: {selected_time_display}"
             
@@ -399,7 +420,9 @@ if df is not None and not df.empty:
                 
                 # 기본 쿼리
                 raw_data_query = f"""
-                SELECT 마감월, 플랜트, 구매그룹, 공급업체명, 자재 AS 자재코드, 자재명,
+                SELECT 마감월, 플랜트, 구매그룹, 
+                       {"공급업체코드, " if "공급업체코드" in df.columns else ""}
+                       공급업체명, 자재 AS 자재코드, 자재명,
                        송장수량, 송장금액, 단가
                 FROM data
                 WHERE {time_filter}
@@ -426,7 +449,8 @@ if df is not None and not df.empty:
                 elif group_option == "업체별":
                     additional_filters.append(f"공급업체명 = '{selected_group}'")
                 elif group_option == "플랜트+업체별":
-                    additional_filters.append(f"플랜트 = {plant_val} AND 공급업체명 = '{supplier_val}'")
+                    if 'plant_val' in locals() and 'supplier_val' in locals() and plant_val != 0 and supplier_val:
+                        additional_filters.append(f"플랜트 = {plant_val} AND 공급업체명 = '{supplier_val}'")
                 
                 if additional_filters:
                     raw_data_query += " AND " + " AND ".join(additional_filters)
@@ -463,13 +487,14 @@ if df is not None and not df.empty:
     if suppliers_all:
         sup_df = con.execute(
             f"""
-            SELECT 공급업체명,
+            SELECT {"공급업체코드, " if "공급업체코드" in df.columns else ""}
+                   공급업체명,
                    SUM(송장수량)/1000    AS 송장수량_천EA,
                    SUM(송장금액)/1000000 AS 송장금액_백만원
             FROM data
             {where_sql}
-            GROUP BY 1
-            ORDER BY 2 DESC
+            GROUP BY {"1, 2" if "공급업체코드" in df.columns else "1"}
+            ORDER BY {"3" if "공급업체코드" in df.columns else "2"} DESC
             """
         ).fetchdf()
 
@@ -526,6 +551,7 @@ if df is not None and not df.empty:
         search_df = con.execute(
             f"""
             SELECT 마감월, 연월, 연도, 플랜트, 구매그룹,
+                   {"공급업체코드, " if "공급업체코드" in df.columns else ""}
                    {"공급업체명, " if "공급업체명" in df.columns else ""}
                    자재 AS 자재코드,
                    자재명,

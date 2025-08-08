@@ -28,26 +28,26 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = df.columns.str.strip()
     rename_map: dict[str, str] = {}
     
-    # 향상된 컬럼 매핑 로직
-    column_mappings = {
+    # 향상된 컬럼 매핑 로직 - 각 변형들을 개별적으로 처리
+    column_mappings = [
         # 공급업체 관련
-        ["업체명", "공급업체명", "밤더명"]: "공급업체명",
-        ["공급업체", "공급사코드", "공급업체코드", "밤더코드"]: "공급업체코드",
+        (["업체명", "공급업체명", "밤더명"], "공급업체명"),
+        (["공급업체", "공급사코드", "공급업체코드", "밤더코드"], "공급업체코드"),
         # 구매그룹 관련
-        ["구매그룹명", "구매그룹"]: "구매그룹",
+        (["구매그룹명", "구매그룹"], "구매그룹"),
         # 송장 관련
-        ["송장금액", "인보이스금액", "발주금액"]: "송장금액",
-        ["송장수량", "인보이스수량", "발주수량"]: "송장수량",
+        (["송장금액", "인보이스금액", "발주금액"], "송장금액"),
+        (["송장수량", "인보이스수량", "발주수량"], "송장수량"),
         # 자재 관련
-        ["자재", "자재코드", "자재번호"]: "자재",
-        ["자재명", "자재설명"]: "자재명"
-    }
+        (["자재", "자재코드", "자재번호"], "자재"),
+        (["자재명", "자재설명"], "자재명")
+    ]
     
     for col in df.columns:
         norm = col.replace(" ", "").replace("(", "").replace(")", "").strip()
         
         # 각 매핑 그룹을 확인하여 매칭되는 컬럼 찾기
-        for variations, target_name in column_mappings.items():
+        for variations, target_name in column_mappings:
             if any(norm == var.replace(" ", "") for var in variations):
                 rename_map[col] = target_name
                 break

@@ -323,16 +323,43 @@ if df is not None and not df.empty:
         # 데이터 테이블 표시
         if group_option == "전체":
             display_cols = ["시간표시", metric_name]
-            display_df = format_numeric_columns(time_df[display_cols], [metric_name])
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.1f"
+                    )
+                }
+            )
         elif group_option == "플랜트+업체별":
             display_cols = ["시간표시", "플랜트", "공급업체명", metric_name]
-            display_df = format_numeric_columns(time_df[display_cols], [metric_name])
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.1f"
+                    )
+                }
+            )
         else:
             display_cols = ["시간표시", group_col, metric_name]
-            display_df = format_numeric_columns(time_df[display_cols], [metric_name])
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.1f"
+                    )
+                }
+            )
 
         # 차트 생성 - 클릭 이벤트 추가
         click = alt.selection_point(name="point_select")
@@ -625,12 +652,42 @@ if df is not None and not df.empty:
                         with col3:
                             st.metric("총 자재건수", f"{summary_df['자재건수'].sum():,.0f}건")
                         
-                        summary_df_formatted = format_numeric_columns(summary_df, ['송장금액', '송장수량'])
-                        st.dataframe(summary_df_formatted, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            summary_df, 
+                            use_container_width=True, 
+                            hide_index=True,
+                            column_config={
+                                "송장금액": st.column_config.NumberColumn(
+                                    "송장금액",
+                                    format="%.0f"
+                                ),
+                                "송장수량": st.column_config.NumberColumn(
+                                    "송장수량", 
+                                    format="%.0f"
+                                )
+                            }
+                        )
                     
                     st.subheader("📋 상세 Raw 데이터")
-                    raw_df_formatted = format_numeric_columns(raw_df, ['송장수량', '송장금액', '단가'])
-                    st.dataframe(raw_df_formatted, use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        raw_df, 
+                        use_container_width=True, 
+                        hide_index=True,
+                        column_config={
+                            "송장금액": st.column_config.NumberColumn(
+                                "송장금액",
+                                format="%.0f"
+                            ),
+                            "송장수량": st.column_config.NumberColumn(
+                                "송장수량", 
+                                format="%.0f"
+                            ),
+                            "단가": st.column_config.NumberColumn(
+                                "단가",
+                                format="%.0f"
+                            )
+                        }
+                    )
                     
                     # CSV 다운로드
                     filename_suffix = period_text.replace('~', '_to_').replace('-', '')
@@ -679,8 +736,21 @@ if df is not None and not df.empty:
 
         st.markdown("---")
         st.header(" 업체별 구매 현황")
-        sup_df_formatted = format_numeric_columns(sup_df, ["송장수량_천EA", "송장금액_백만원"])
-        st.dataframe(sup_df_formatted, hide_index=True, use_container_width=True)
+        st.dataframe(
+            sup_df, 
+            hide_index=True, 
+            use_container_width=True,
+            column_config={
+                "송장금액_백만원": st.column_config.NumberColumn(
+                    "송장금액(백만원)",
+                    format="%.1f"
+                ),
+                "송장수량_천EA": st.column_config.NumberColumn(
+                    "송장수량(천EA)", 
+                    format="%.1f"
+                )
+            }
+        )
 
         if not sup_df.empty:
             st.download_button(
@@ -771,12 +841,41 @@ if df is not None and not df.empty:
                 search_summary.columns = ['연월', '송장금액_백만원', '송장수량_천EA', '자재건수']
                 
                 st.subheader("🔍 검색결과 월별 요약")
-                search_summary_formatted = format_numeric_columns(search_summary, ["송장금액_백만원", "송장수량_천EA"])
-                st.dataframe(search_summary_formatted, use_container_width=True, hide_index=True)
+                st.dataframe(
+                    search_summary, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "송장금액_백만원": st.column_config.NumberColumn(
+                            "송장금액(백만원)",
+                            format="%.1f"
+                        ),
+                        "송장수량_천EA": st.column_config.NumberColumn(
+                            "송장수량(천EA)", 
+                            format="%.1f"
+                        )
+                    }
+                )
             
             st.subheader("📋 검색결과 상세")
-            search_df_formatted = format_numeric_columns(search_df, ["송장수량_천EA", "송장금액_백만원"])
-            st.dataframe(search_df_formatted, use_container_width=True)
+            st.dataframe(
+                search_df, 
+                use_container_width=True,
+                column_config={
+                    "송장금액_백만원": st.column_config.NumberColumn(
+                        "송장금액(백만원)",
+                        format="%.1f"
+                    ),
+                    "송장수량_천EA": st.column_config.NumberColumn(
+                        "송장수량(천EA)", 
+                        format="%.1f"
+                    ),
+                    "단가": st.column_config.NumberColumn(
+                        "단가",
+                        format="%.0f"
+                    )
+                }
+            )
             st.download_button(
                 "검색결과 CSV 다운로드",
                 search_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),

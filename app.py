@@ -823,20 +823,31 @@ if df is not None and not df.empty:
             if group_col_name:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 왼쪽 축 - 송장금액 막대 차트
-            bars = base_chart.mark_bar(opacity=0.7).encode(
+            # 축 범위 계산 - 송장금액 축의 최대값을 130%로 확장하여 레이블 여백 확보
+            max_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            expanded_max_amount = max_amount * 1.3
+            
+            # 왼쪽 축 - 송장금액 막대 차트 (투명도 감소 및 축 범위 확장)
+            bars = base_chart.mark_bar(opacity=0.6).encode(
                 x=x_encoding,
                 y=alt.Y('송장금액_백만원:Q', 
                        title='송장금액(백만원)', 
-                       axis=alt.Axis(orient='left', titleColor='steelblue', grid=True)),
+                       axis=alt.Axis(
+                           orient='left', 
+                           titleColor='steelblue', 
+                           grid=True,
+                           labelColor='steelblue',
+                           tickColor='steelblue'
+                       ),
+                       scale=alt.Scale(domain=[0, expanded_max_amount])),
                 color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
                 tooltip=tooltip_cols
             )
             
-            # 막대 차트 데이터 레이블 (0이 아닌 값만)
+            # 막대 차트 데이터 레이블 (0이 아닌 값만) - 위치 조정
             bar_text = base_chart.mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q'),
+                y=alt.Y('송장금액_백만원:Q', scale=alt.Scale(domain=[0, expanded_max_amount])),
                 text=alt.condition(
                     alt.datum.송장금액_백만원 > 0,
                     alt.Text('송장금액_백만원:Q', format='.0f'),
@@ -845,18 +856,24 @@ if df is not None and not df.empty:
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
             )
             
-            # 오른쪽 축 - 송장수량 꺾은선 차트
+            # 오른쪽 축 - 송장수량 꺾은선 차트 (오른쪽 축에만 송장수량 표시)
             lines = base_chart.mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
                 x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q', 
                        title='송장수량(천EA)', 
-                       axis=alt.Axis(orient='right', titleColor='red', grid=False)),
+                       axis=alt.Axis(
+                           orient='right', 
+                           titleColor='red', 
+                           grid=False,
+                           labelColor='red',
+                           tickColor='red'
+                       )),
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
                 tooltip=tooltip_cols
             )
             
-            # 꺾은선 차트 데이터 레이블 (0이 아닌 값만)
-            line_text = base_chart.mark_text(dy=-12, fontSize=9, fontWeight='bold').encode(
+            # 꺾은선 차트 데이터 레이블 (0이 아닌 값만) - 더 높게 배치하여 겹침 방지
+            line_text = base_chart.mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q'),
                 text=alt.condition(

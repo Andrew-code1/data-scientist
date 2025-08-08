@@ -145,44 +145,53 @@ if df is not None and not df.empty:
     with st.sidebar:
         st.header("필터 조건")
         # 안전한 필터 옵션 생성
-        years_all = sorted(df["연도"].dropna().astype(int).unique().tolist())
+        yearmonths_all = sorted(df["연월"].dropna().dt.strftime('%Y-%m').unique().tolist())
         plants_all = sorted([x for x in df["플랜트"].dropna().astype(int).unique() if x > 0]) if "플랜트" in df.columns else []
         groups_all = sorted([x for x in df["구매그룹"].dropna().astype(int).unique() if x > 0]) if "구매그룹" in df.columns else []
         suppliers_all = sorted([x for x in df["업체표시"].dropna().unique() 
                                 if str(x).strip() != '' and 'nan' not in str(x).lower() and not str(x).startswith('0_')]) if "업체표시" in df.columns else []
 
-        # 연도 범위 선택
-        min_year, max_year = min(years_all), max(years_all)
+        # 연월 범위 선택
+        min_ym, max_ym = min(yearmonths_all), max(yearmonths_all)
         
-        st.subheader("연도 범위")
-        year_filter_type = st.radio("선택 방식", ["슬라이더", "직접 입력"], horizontal=True)
+        st.subheader("연월 범위 (YYYY-MM)")
+        ym_filter_type = st.radio("선택 방식", ["직접 선택", "시작/끝 입력"], horizontal=True)
         
-        if year_filter_type == "슬라이더":
-            year_range = st.slider(
-                "연도 범위 선택",
-                min_value=min_year,
-                max_value=max_year,
-                value=(min_year, max_year),
-                step=1
+        if ym_filter_type == "직접 선택":
+            sel_yearmonths = st.multiselect(
+                "연월 선택",
+                options=yearmonths_all,
+                default=yearmonths_all[-6:] if len(yearmonths_all) >= 6 else yearmonths_all,  # 최근 6개월 기본 선택
+                key="yearmonth_multiselect"
             )
-            start_year, end_year = year_range
         else:
             col1, col2 = st.columns(2)
             with col1:
-                start_year = st.number_input("시작 연도", min_value=min_year, max_value=max_year, value=min_year)
+                start_ym = st.selectbox("시작 연월", options=yearmonths_all, index=0, key="start_ym")
             with col2:
-                end_year = st.number_input("끝 연도", min_value=min_year, max_value=max_year, value=max_year)
+                end_ym = st.selectbox("끝 연월", options=yearmonths_all, index=len(yearmonths_all)-1, key="end_ym")
+            
+            # 범위 내 연월들 선택
+            start_idx = yearmonths_all.index(start_ym)
+            end_idx = yearmonths_all.index(end_ym)
+            if start_idx <= end_idx:
+                sel_yearmonths = yearmonths_all[start_idx:end_idx+1]
+            else:
+                sel_yearmonths = yearmonths_all[end_idx:start_idx+1]
         
-        # 선택된 연도 범위에 해당하는 연도들
-        sel_years = [year for year in years_all if start_year <= year <= end_year]
-        
-        st.write(f"선택된 연도: {start_year}년 ~ {end_year}년 ({len(sel_years)}개)")
+        st.write(f"선택된 연월: {len(sel_yearmonths)}개월 ({min(sel_yearmonths)} ~ {max(sel_yearmonths)})")
 
         sel_plants = multiselect_with_toggle("플랜트", plants_all, "pl") if plants_all else []
         sel_groups = multiselect_with_toggle("구매그룹", groups_all, "gr") if groups_all else []
         sel_suppliers = multiselect_with_toggle("공급업체", suppliers_all, "sp") if suppliers_all else []
 
-    clauses = [f"연도 IN ({sql_list_num(sel_years)})"]
+    # 연월 필터링을 위한 SQL 조건 생성
+    ym_conditions = []
+    for ym in sel_yearmonths:
+        year, month = ym.split('-')
+        ym_conditions.append(f"(EXTRACT(YEAR FROM 마감월) = {year} AND EXTRACT(MONTH FROM 마감월) = {int(month)})")
+    
+    clauses = [f"({' OR '.join(ym_conditions)})"]
     if plants_all:
         clauses.append(f"플랜트 IN ({sql_list_num(sel_plants)})")
     if groups_all:
@@ -385,78 +394,134 @@ if df is not None and not df.empty:
             if st.session_state.get("debug_mode", False):
                 st.error(f"Selection 처리 중 오류: {e}")
         
-        # 대체 방안: 드롭다운으로 데이터 선택
+        # Raw 데이터 조회 섹션
         st.markdown("---")
         st.subheader("📊 상세 Raw 데이터 조회")
         
-        with st.expander("데이터 선택 방식", expanded=True):
-            col1, col2 = st.columns(2)
+        with st.expander("기간별 데이터 조회", expanded=True):
+            # 조회 방식 선택
+            query_mode = st.radio(
+                "조회 방식 선택",
+                ["특정 시점", "특정 기간"],
+                horizontal=True,
+                key="query_mode"
+            )
             
-            with col1:
-                # 시간 선택
-                available_times = time_df[time_name].unique()
-                if time_unit == "월별":
-                    time_options = [(t.strftime(time_format), t) for t in available_times]
-                else:
-                    time_options = [(f"{int(t)}년", t) for t in available_times]
-                
-                selected_time_display = st.selectbox(
-                    f"{time_unit} 선택",
-                    options=[opt[0] for opt in time_options],
-                    key="time_select"
+            if query_mode == "특정 시점":
+                # 특정 연월 선택
+                selected_ym = st.selectbox(
+                    "조회할 연월 (YYYY-MM) 선택",
+                    options=sel_yearmonths,
+                    key="single_ym_select"
                 )
-                selected_time_value = dict(time_options)[selected_time_display]
+                query_yearmonths = [selected_ym]
+                st.info(f"선택된 시점: {selected_ym} (해당 월 데이터)")
+            else:
+                # 기간 범위 선택  
+                col1, col2 = st.columns(2)
+                with col1:
+                    period_start = st.selectbox(
+                        "시작 연월", 
+                        options=sel_yearmonths, 
+                        index=0,
+                        key="period_start"
+                    )
+                with col2:
+                    period_end = st.selectbox(
+                        "끝 연월", 
+                        options=sel_yearmonths,
+                        index=len(sel_yearmonths)-1,
+                        key="period_end"
+                    )
+                
+                # 선택된 기간 내 연월들
+                start_idx = sel_yearmonths.index(period_start)
+                end_idx = sel_yearmonths.index(period_end)
+                if start_idx <= end_idx:
+                    query_yearmonths = sel_yearmonths[start_idx:end_idx+1]
+                else:
+                    query_yearmonths = sel_yearmonths[end_idx:start_idx+1]
+                
+                st.info(f"선택된 기간: {min(query_yearmonths)} ~ {max(query_yearmonths)} ({len(query_yearmonths)}개월 누계)")
+            
+            col1, col2 = st.columns(2)
             
             with col2:
                 # 그룹 선택 (필요한 경우)
                 if group_option != "전체":
+                    # 선택된 기간의 모든 데이터에서 그룹 옵션 가져오기
+                    period_filter_conditions = []
+                    for ym in query_yearmonths:
+                        year, month = ym.split('-')
+                        period_filter_conditions.append(f"(EXTRACT(YEAR FROM 마감월) = {year} AND EXTRACT(MONTH FROM 마감월) = {int(month)})")
+                    
+                    period_where = " OR ".join(period_filter_conditions)
+                    
                     if group_option == "플랜트별":
-                        available_groups = time_df[time_df[time_name] == selected_time_value]["플랜트"].unique()
-                        selected_group = st.selectbox("플랜트 선택", options=available_groups, key="plant_select")
-                        info_text = f"선택된 기간: {selected_time_display}, 플랜트: {selected_group}"
+                        # 기간 내 플랜트 옵션 조회
+                        plants_in_period = con.execute(f"""
+                            SELECT DISTINCT 플랜트 FROM data 
+                            WHERE ({period_where}) AND 플랜트 > 0
+                            ORDER BY 플랜트
+                        """).fetchdf()['플랜트'].tolist()
+                        
+                        if plants_in_period:
+                            selected_group = st.selectbox("플랜트 선택", options=plants_in_period, key="plant_select_period")
+                            info_text = f"플랜트: {selected_group}"
+                        else:
+                            st.warning("해당 기간에 플랜트 데이터가 없습니다.")
+                            selected_group = None
+                            
                     elif group_option == "업체별":
-                        available_groups = time_df[time_df[time_name] == selected_time_value]["공급업체명"].unique()
-                        selected_group = st.selectbox("업체 선택", options=available_groups, key="supplier_select")
-                        info_text = f"선택된 기간: {selected_time_display}, 업체: {selected_group}"
+                        # 기간 내 업체 옵션 조회
+                        suppliers_in_period = con.execute(f"""
+                            SELECT DISTINCT 공급업체명 FROM data 
+                            WHERE ({period_where}) AND 공급업체명 IS NOT NULL AND 공급업체명 != ''
+                            ORDER BY 공급업체명
+                        """).fetchdf()['공급업체명'].tolist()
+                        
+                        if suppliers_in_period:
+                            selected_group = st.selectbox("업체 선택", options=suppliers_in_period, key="supplier_select_period")
+                            info_text = f"업체: {selected_group}"
+                        else:
+                            st.warning("해당 기간에 업체 데이터가 없습니다.")
+                            selected_group = None
+                            
                     else:  # 플랜트+업체별
-                        filtered_df = time_df[time_df[time_name] == selected_time_value]
-                        available_combos = filtered_df[["플랜트", "공급업체명"]].drop_duplicates()
-                        combo_options = []
-                        for _, row in available_combos.iterrows():
-                            plant = row['플랜트']
-                            supplier = row['공급업체명']
-                            if pd.notna(plant) and pd.notna(supplier):
-                                try:
-                                    plant_int = int(plant)
-                                    combo_options.append(f"플랜트{plant_int}-{supplier}")
-                                except (ValueError, TypeError):
-                                    continue
-                        if combo_options:
-                            selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="combo_select")
-                            try:
-                                plant_str = selected_combo.split('-')[0].replace('플랜트', '')
-                                plant_val = int(plant_str) if plant_str else 0
-                                supplier_val = selected_combo.split('-', 1)[1] if '-' in selected_combo else ""
-                                info_text = f"선택된 기간: {selected_time_display}, 플랜트: {plant_val}, 업체: {supplier_val}"
-                            except (ValueError, IndexError, AttributeError):
-                                plant_val = 0
-                                supplier_val = ""
-                                info_text = f"선택된 기간: {selected_time_display}, 플랜트+업체 데이터 오류"
+                        # 기간 내 플랜트+업체 조합 조회
+                        combos_in_period = con.execute(f"""
+                            SELECT DISTINCT 플랜트, 공급업체명 FROM data 
+                            WHERE ({period_where}) AND 플랜트 > 0 AND 공급업체명 IS NOT NULL AND 공급업체명 != ''
+                            ORDER BY 플랜트, 공급업체명
+                        """).fetchdf()
+                        
+                        if not combos_in_period.empty:
+                            combo_options = []
+                            for _, row in combos_in_period.iterrows():
+                                plant = int(row['플랜트'])
+                                supplier = row['공급업체명']
+                                combo_options.append(f"플랜트{plant}-{supplier}")
+                            
+                            selected_combo = st.selectbox("플랜트-업체 선택", options=combo_options, key="combo_select_period")
+                            plant_val = int(selected_combo.split('-')[0].replace('플랜트', ''))
+                            supplier_val = selected_combo.split('-', 1)[1]
+                            info_text = f"플랜트: {plant_val}, 업체: {supplier_val}"
                         else:
                             st.warning("해당 기간에 플랜트+업체 데이터가 없습니다.")
-                            plant_val = 0
-                            supplier_val = ""
-                            info_text = f"선택된 기간: {selected_time_display}, 데이터 없음"
+                            plant_val = None
+                            supplier_val = None
                 else:
-                    info_text = f"선택된 기간: {selected_time_display}"
+                    info_text = f"전체 데이터"
             
             # Raw 데이터 조회 버튼
-            if st.button("상세 데이터 조회", type="primary"):
-                # Raw 데이터 쿼리 생성
-                if time_unit == "월별":
-                    time_filter = f"date_trunc('month', 마감월) = '{selected_time_value}'"
-                else:
-                    time_filter = f"연도 = {selected_time_value}"
+            if st.button("상세 데이터 조회", type="primary", key="raw_data_query_btn"):
+                # 연월 기간 필터 조건 생성
+                period_conditions = []
+                for ym in query_yearmonths:
+                    year, month = ym.split('-')
+                    period_conditions.append(f"(EXTRACT(YEAR FROM 마감월) = {year} AND EXTRACT(MONTH FROM 마감월) = {int(month)})")
+                
+                period_filter = " OR ".join(period_conditions)
                 
                 # 기본 쿼리 - 안전한 캐스팅 적용
                 supplier_code_select = ""
@@ -473,10 +538,10 @@ if df is not None and not df.empty:
                        공급업체명, 자재 AS 자재코드, 자재명,
                        송장수량, 송장금액, 단가
                 FROM data
-                WHERE {time_filter}
+                WHERE ({period_filter})
                 """
                 
-                # 기존 필터 조건 추가 (연도 필터 제외)
+                # 기존 필터 조건 추가
                 additional_filters = []
                 if plants_all and sel_plants:
                     additional_filters.append(f"플랜트 IN ({sql_list_num(sel_plants)})")
@@ -508,13 +573,12 @@ if df is not None and not df.empty:
                             additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
                 
                 # 그룹별 추가 필터
-                if group_option == "플랜트별":
+                if group_option == "플랜트별" and 'selected_group' in locals() and selected_group is not None:
                     additional_filters.append(f"플랜트 = {selected_group}")
-                elif group_option == "업체별":
-                    additional_filters.append(f"공급업체명 = '{selected_group}'")
-                elif group_option == "플랜트+업체별":
-                    if 'plant_val' in locals() and 'supplier_val' in locals() and plant_val != 0 and supplier_val:
-                        additional_filters.append(f"플랜트 = {plant_val} AND 공급업체명 = '{supplier_val}'")
+                elif group_option == "업체별" and 'selected_group' in locals() and selected_group is not None:
+                    additional_filters.append(f"공급업체명 = '{selected_group.replace("'", "''")}'")  # SQL 이스케이프
+                elif group_option == "플랜트+업체별" and 'plant_val' in locals() and 'supplier_val' in locals() and plant_val is not None and supplier_val is not None:
+                    additional_filters.append(f"플랜트 = {plant_val} AND 공급업체명 = '{supplier_val.replace("'", "''")}'")  # SQL 이스케이프
                 
                 if additional_filters:
                     raw_data_query += " AND " + " AND ".join(additional_filters)
@@ -526,21 +590,41 @@ if df is not None and not df.empty:
                 
                 # 결과 표시
                 if not raw_df.empty:
-                    st.success(f"**총 {len(raw_df):,}건의 데이터를 찾았습니다!**")
+                    period_text = f"{min(query_yearmonths)}~{max(query_yearmonths)}" if len(query_yearmonths) > 1 else query_yearmonths[0]
+                    st.success(f"**{period_text} 기간 총 {len(raw_df):,}건의 데이터를 찾았습니다!**")
+                    
+                    # 기간별 요약 정보 먼저 표시
+                    if len(query_yearmonths) > 1:
+                        summary_df = raw_df.groupby('마감월').agg({
+                            '송장금액': 'sum',
+                            '송장수량': 'sum',
+                            '자재코드': 'count'
+                        }).reset_index()
+                        summary_df.columns = ['연월', '송장금액', '송장수량', '자재건수']
+                        
+                        st.subheader("📈 월별 누계 현황")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("총 송장금액", f"{summary_df['송장금액'].sum():,.0f}원")
+                        with col2:
+                            st.metric("총 송장수량", f"{summary_df['송장수량'].sum():,.0f}")
+                        with col3:
+                            st.metric("총 자재건수", f"{summary_df['자재건수'].sum():,.0f}건")
+                        
+                        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                    
+                    st.subheader("📋 상세 Raw 데이터")
                     st.dataframe(raw_df, use_container_width=True, hide_index=True)
                     
-                    # 요약 정보
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("총 송장금액", f"{raw_df['송장금액'].sum():,.0f}원")
-                    with col2:
-                        st.metric("총 송장수량", f"{raw_df['송장수량'].sum():,.0f}")
-                    
                     # CSV 다운로드
+                    filename_suffix = period_text.replace('~', '_to_').replace('-', '')
+                    if group_option != "전체":
+                        filename_suffix += f"_{info_text.replace(' ', '_').replace(':', '').replace('-', '_')}"
+                    
                     st.download_button(
                         "상세 데이터 CSV 다운로드",
                         raw_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
-                        file_name=f"raw_data_{info_text.replace(' ', '_').replace(':', '').replace('-', '_')}.csv",
+                        file_name=f"raw_data_{filename_suffix}.csv",
                         mime="text/csv",
                     )
                 else:
@@ -648,7 +732,7 @@ if df is not None and not df.empty:
                    송장금액/1000000 AS 송장금액_백만원
             FROM data
             {where_sql} AND ({search_where})
-            ORDER BY 마감월
+            ORDER BY 마감월, 공급업체명, 자재코드
             """
         ).fetchdf()
 
@@ -660,6 +744,19 @@ if df is not None and not df.empty:
         if search_df.empty:
             st.info("검색 결과가 없습니다.")
         else:
+            # 연월별 검색 결과 요약
+            if len(search_df) > 0 and len(sel_yearmonths) > 1:
+                search_summary = search_df.groupby('연월').agg({
+                    '송장금액_백만원': 'sum',
+                    '송장수량_천EA': 'sum',
+                    '자재코드': 'count'
+                }).reset_index()
+                search_summary.columns = ['연월', '송장금액_백만원', '송장수량_천EA', '자재건수']
+                
+                st.subheader("🔍 검색결과 월별 요약")
+                st.dataframe(search_summary, use_container_width=True, hide_index=True)
+            
+            st.subheader("📋 검색결과 상세")
             st.dataframe(search_df, use_container_width=True)
             st.download_button(
                 "검색결과 CSV 다운로드",

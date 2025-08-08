@@ -311,6 +311,35 @@ if df is not None and not df.empty:
             st.dataframe(preview_df[key_cols], use_container_width=True)
         else:
             st.dataframe(preview_df, use_container_width=True)
+        
+        # 집계 결과 디버깅 정보 (있는 경우)
+        if "debug_aggregation_info" in st.session_state:
+            st.subheader("차트 집계 결과 분석")
+            agg_info = st.session_state["debug_aggregation_info"]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("총 집계 행수", agg_info['total_rows'])
+            with col2:
+                st.metric("고유 월 수", agg_info['unique_months'])
+            with col3:
+                st.metric("날짜 범위", agg_info['date_range'])
+            
+            if agg_info['group_option'] != "전체":
+                st.write(f"**분석 단위**: {agg_info['group_option']}")
+                if 'unique_groups' in agg_info:
+                    st.write(f"**고유 그룹 수**: {agg_info['unique_groups']}")
+                    if 'groups_list' in agg_info:
+                        st.write(f"**그룹 예시**: {', '.join(map(str, agg_info['groups_list'][:5]))}")
+            
+            # 중복 월 경고
+            if agg_info['total_rows'] > agg_info['unique_months'] * (agg_info.get('unique_groups', 1)):
+                expected_rows = agg_info['unique_months'] * agg_info.get('unique_groups', 1)
+                st.warning(f"⚠️ 예상보다 많은 데이터 행이 있습니다. 예상: {expected_rows}, 실제: {agg_info['total_rows']}")
+                st.info("이는 같은 월에 여러 데이터가 중복되어 차트에 같은 월이 여러 번 나타날 수 있음을 의미합니다.")
+            
+            with st.expander("SQL 쿼리 확인"):
+                st.code(agg_info['sql_query'], language="sql")
     
     con = duckdb.connect(database=":memory:")
     con.register("data", df)
@@ -411,6 +440,15 @@ if df is not None and not df.empty:
     where_sql = " WHERE " + " AND ".join(clauses)
 
     st.title("구매 데이터 추이 분석")
+    
+    # 차트 해석 도움말
+    with st.expander("📊 차트 해석 가이드", expanded=False):
+        st.write("**월별 그래프에서 같은 월이 여러 번 나타나는 경우:**")
+        st.write("- '전체' 분석: 일반적으로 월당 1개 데이터포인트")
+        st.write("- '업체별' 분석: 같은 월에 여러 업체가 있으면 각각 별도 라인으로 표시")
+        st.write("- '플랜트별' 분석: 같은 월에 여러 플랜트가 있으면 각각 별도 라인으로 표시")
+        st.write("- 이는 정상적인 동작이며, 각 그룹별로 시계열을 보여주는 것입니다.")
+        st.info("같은 월에 대한 전체 합계를 보고 싶다면 '전체' 분석 옵션을 선택하세요.")
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -534,15 +572,34 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2, 3"
 
-    time_df = con.execute(
-        f"""
+    # SQL 쿼리 실행 및 디버깅 정보 수집
+    sql_query = f"""
         SELECT {select_cols}
         FROM data
         {where_sql}
         {group_by_clause}
         ORDER BY 1, 2{', 3' if group_option in ['플랜트+업체별', '파트+카테고리(최종)별', '파트+KPI용카테고리별'] else ''}
         """
-    ).fetchdf()
+    
+    time_df = con.execute(sql_query).fetchdf()
+    
+    # 디버깅을 위한 집계 정보 저장
+    if not time_df.empty:
+        debug_aggregation_info = {
+            'total_rows': len(time_df),
+            'unique_months': time_df[time_name].nunique() if time_name in time_df.columns else 0,
+            'date_range': f"{time_df[time_name].min()} ~ {time_df[time_name].max()}" if time_name in time_df.columns else "N/A",
+            'sql_query': sql_query,
+            'group_option': group_option,
+            'time_unit': time_unit
+        }
+        
+        # 그룹별 분석인 경우 그룹 정보도 추가
+        if group_option != "전체" and group_col in time_df.columns:
+            debug_aggregation_info['unique_groups'] = time_df[group_col].nunique()
+            debug_aggregation_info['groups_list'] = time_df[group_col].unique().tolist()[:10]  # 최대 10개만
+        
+        st.session_state["debug_aggregation_info"] = debug_aggregation_info
 
     if time_df.empty:
         st.error("선택한 조건에 해당하는 데이터가 없습니다.")
@@ -551,11 +608,24 @@ if df is not None and not df.empty:
         st.write("2. 필터 조건을 더 넓히 설정해보세요")
         st.write("3. 송장금액이나 송장수량 데이터가 없을 수 있습니다")
     else:
-        # 시간 표시 컬럼 생성
+        # 시간 표시 컬럼 생성 - 중복 방지 개선
         if time_unit == "월별":
-            time_df["시간표시"] = time_df[time_name].dt.strftime(time_format)
+            # 날짜 타입 확인 후 처리
+            if pd.api.types.is_datetime64_any_dtype(time_df[time_name]):
+                time_df["시간표시"] = time_df[time_name].dt.strftime(time_format)
+            else:
+                # 문자열이나 다른 타입인 경우 날짜로 변환 시도
+                try:
+                    time_df[time_name] = pd.to_datetime(time_df[time_name])
+                    time_df["시간표시"] = time_df[time_name].dt.strftime(time_format)
+                except:
+                    # 변환 실패시 원본 사용
+                    time_df["시간표시"] = time_df[time_name].astype(str)
         else:  # 연도별
             time_df["시간표시"] = time_df[time_name].astype(int).astype(str) + "년"
+        
+        # 데이터 정렬 - 시간 순서로 정렬하여 차트에서 올바른 순서 보장
+        time_df = time_df.sort_values([time_name] + ([group_col] if group_option != "전체" and group_col in time_df.columns else []))
         
         if group_option == "플랜트+업체별":
             time_df["플랜트_업체"] = time_df["플랜트"].astype(str) + "_" + time_df["공급업체명"]
@@ -663,10 +733,26 @@ if df is not None and not df.empty:
         # 차트 생성 - 클릭 이벤트 추가
         click = alt.selection_point(name="point_select")
         
+        # X축 설정 개선 - 중복 방지 및 정렬
         if time_unit == "월별":
-            x_encoding = alt.X(f"{time_name}:T", title=time_unit, axis=alt.Axis(format=time_format, labelAngle=-45))
+            # 월별 차트의 경우 시간 순서로 정렬하고 중복 제거
+            x_encoding = alt.X(
+                f"{time_name}:T", 
+                title=time_unit, 
+                axis=alt.Axis(
+                    format=time_format, 
+                    labelAngle=-45,
+                    labelOverlap=False  # 레이블 겹침 방지
+                ),
+                sort="ascending"  # 시간 순서로 정렬
+            )
         else:
-            x_encoding = alt.X(f"{time_name}:O", title=time_unit)
+            # 연도별의 경우
+            x_encoding = alt.X(
+                f"{time_name}:O", 
+                title=time_unit,
+                sort="ascending"
+            )
 
         # 복합 차트 생성 함수 (이중축)
         def create_combined_chart(data, group_col_name=None):

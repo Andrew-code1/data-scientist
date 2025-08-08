@@ -106,6 +106,17 @@ def sql_list_str(vals: list[str]) -> str:
     return ",".join(safe_vals) if safe_vals else "''"
 
 
+def format_numeric_columns(df: pd.DataFrame, numeric_cols: list[str]) -> pd.DataFrame:
+    """숫자 컬럼에 천단위 콤마 적용"""
+    df_formatted = df.copy()
+    for col in numeric_cols:
+        if col in df_formatted.columns:
+            df_formatted[col] = df_formatted[col].apply(
+                lambda x: f"{x:,.1f}" if pd.notnull(x) and isinstance(x, (int, float)) else str(x)
+            )
+    return df_formatted
+
+
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
@@ -325,13 +336,16 @@ if df is not None and not df.empty:
         # 데이터 테이블 표시
         if group_option == "전체":
             display_cols = ["시간표시", metric_name]
-            st.dataframe(time_df[display_cols], hide_index=True, use_container_width=True)
+            display_df = format_numeric_columns(time_df[display_cols], [metric_name])
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
         elif group_option == "플랜트+업체별":
             display_cols = ["시간표시", "플랜트", "공급업체명", metric_name]
-            st.dataframe(time_df[display_cols], hide_index=True, use_container_width=True)
+            display_df = format_numeric_columns(time_df[display_cols], [metric_name])
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
         else:
             display_cols = ["시간표시", group_col, metric_name]
-            st.dataframe(time_df[display_cols], hide_index=True, use_container_width=True)
+            display_df = format_numeric_columns(time_df[display_cols], [metric_name])
+            st.dataframe(display_df, hide_index=True, use_container_width=True)
 
         # 차트 생성 - 클릭 이벤트 추가
         click = alt.selection_point(name="point_select")
@@ -624,10 +638,12 @@ if df is not None and not df.empty:
                         with col3:
                             st.metric("총 자재건수", f"{summary_df['자재건수'].sum():,.0f}건")
                         
-                        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+                        summary_df_formatted = format_numeric_columns(summary_df, ['송장금액', '송장수량'])
+                        st.dataframe(summary_df_formatted, use_container_width=True, hide_index=True)
                     
                     st.subheader("📋 상세 Raw 데이터")
-                    st.dataframe(raw_df, use_container_width=True, hide_index=True)
+                    raw_df_formatted = format_numeric_columns(raw_df, ['송장수량', '송장금액', '단가'])
+                    st.dataframe(raw_df_formatted, use_container_width=True, hide_index=True)
                     
                     # CSV 다운로드
                     filename_suffix = period_text.replace('~', '_to_').replace('-', '')
@@ -676,7 +692,8 @@ if df is not None and not df.empty:
 
         st.markdown("---")
         st.header(" 업체별 구매 현황")
-        st.dataframe(sup_df, hide_index=True, use_container_width=True)
+        sup_df_formatted = format_numeric_columns(sup_df, ["송장수량_천EA", "송장금액_백만원"])
+        st.dataframe(sup_df_formatted, hide_index=True, use_container_width=True)
 
         if not sup_df.empty:
             st.download_button(
@@ -767,10 +784,12 @@ if df is not None and not df.empty:
                 search_summary.columns = ['연월', '송장금액_백만원', '송장수량_천EA', '자재건수']
                 
                 st.subheader("🔍 검색결과 월별 요약")
-                st.dataframe(search_summary, use_container_width=True, hide_index=True)
+                search_summary_formatted = format_numeric_columns(search_summary, ["송장금액_백만원", "송장수량_천EA"])
+                st.dataframe(search_summary_formatted, use_container_width=True, hide_index=True)
             
             st.subheader("📋 검색결과 상세")
-            st.dataframe(search_df, use_container_width=True)
+            search_df_formatted = format_numeric_columns(search_df, ["송장수량_천EA", "송장금액_백만원"])
+            st.dataframe(search_df_formatted, use_container_width=True)
             st.download_button(
                 "검색결과 CSV 다운로드",
                 search_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),

@@ -158,12 +158,25 @@ if df is not None and not df.empty:
         ym_filter_type = st.radio("선택 방식", ["직접 선택", "시작/끝 입력"], horizontal=True)
         
         if ym_filter_type == "직접 선택":
-            sel_yearmonths = st.multiselect(
-                "연월 선택",
-                options=yearmonths_all,
-                default=yearmonths_all[-6:] if len(yearmonths_all) >= 6 else yearmonths_all,  # 최근 6개월 기본 선택
-                key="yearmonth_multiselect"
-            )
+            # 슬라이더 기반 범위 선택
+            if len(yearmonths_all) >= 2:
+                default_start_idx = max(0, len(yearmonths_all) - 6)  # 최근 6개월 시작점
+                default_end_idx = len(yearmonths_all) - 1  # 마지막 월
+                
+                selected_range = st.select_slider(
+                    "연월 범위 선택 (라인에서 범위 드래그)",
+                    options=range(len(yearmonths_all)),
+                    value=(default_start_idx, default_end_idx),
+                    format_func=lambda idx: yearmonths_all[idx],
+                    key="yearmonth_range_slider"
+                )
+                
+                start_idx, end_idx = selected_range
+                sel_yearmonths = yearmonths_all[start_idx:end_idx+1]
+            else:
+                # 데이터가 1개월 이하인 경우
+                sel_yearmonths = yearmonths_all
+                st.info(f"사용 가능한 데이터: {yearmonths_all[0] if yearmonths_all else '없음'}")
         else:
             col1, col2 = st.columns(2)
             with col1:

@@ -501,7 +501,7 @@ if df is not None and not df.empty:
     else:  # 송장금액+송장수량
         metric_col = "SUM(송장금액)/1000000, SUM(송장수량)/1000"
         metric_name = "송장금액_백만원"  # 주 메트릭
-        unit_text = "백만원 + 천EA"
+        unit_text = "송장금액(백만원) / 송장수량(천EA)"
         y_title = "송장금액 (백만원)"
         is_combined = True
 
@@ -827,8 +827,8 @@ if df is not None and not df.empty:
             max_amount = data['송장금액_백만원'].max() if not data.empty else 100
             expanded_max_amount = max_amount * 1.3
             
-            # 왼쪽 축 - 송장금액 막대 차트 (투명도 감소 및 축 범위 확장)
-            bars = base_chart.mark_bar(opacity=0.6).encode(
+            # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
+            left_chart = base_chart.mark_bar(opacity=0.6).encode(
                 x=x_encoding,
                 y=alt.Y('송장금액_백만원:Q', 
                        title='송장금액(백만원)', 
@@ -844,10 +844,12 @@ if df is not None and not df.empty:
                 tooltip=tooltip_cols
             )
             
-            # 막대 차트 데이터 레이블 (0이 아닌 값만) - 위치 조정
+            # 막대 차트 데이터 레이블
             bar_text = base_chart.mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', scale=alt.Scale(domain=[0, expanded_max_amount])),
+                y=alt.Y('송장금액_백만원:Q', 
+                       axis=None,  # 레이블용이므로 축 숨김
+                       scale=alt.Scale(domain=[0, expanded_max_amount])),
                 text=alt.condition(
                     alt.datum.송장금액_백만원 > 0,
                     alt.Text('송장금액_백만원:Q', format='.0f'),
@@ -856,8 +858,8 @@ if df is not None and not df.empty:
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
             )
             
-            # 오른쪽 축 - 송장수량 꺾은선 차트 (오른쪽 축에만 송장수량 표시)
-            lines = base_chart.mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
+            # 오른쪽 차트 - 송장수량 꺾은선 차트 (오른쪽 축만 표시)
+            right_chart = base_chart.mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
                 x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q', 
                        title='송장수량(천EA)', 
@@ -872,10 +874,10 @@ if df is not None and not df.empty:
                 tooltip=tooltip_cols
             )
             
-            # 꺾은선 차트 데이터 레이블 (0이 아닌 값만) - 더 높게 배치하여 겹침 방지
+            # 꺾은선 차트 데이터 레이블
             line_text = base_chart.mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q'),
+                y=alt.Y('송장수량_천EA:Q', axis=None),  # 레이블용이므로 축 숨김
                 text=alt.condition(
                     alt.datum.송장수량_천EA > 0,
                     alt.Text('송장수량_천EA:Q', format='.0f'),
@@ -884,8 +886,13 @@ if df is not None and not df.empty:
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
             )
             
-            # 독립적인 Y축을 가진 이중축 차트
-            return alt.layer(bars, bar_text, lines, line_text).resolve_scale(y='independent').add_params(click)
+            # 완전한 이중축 차트 - 각 축이 독립적으로 표시
+            return alt.layer(
+                left_chart,   # 왼쪽 축만 표시되는 막대차트
+                right_chart,  # 오른쪽 축만 표시되는 꺾은선차트  
+                bar_text,     # 막대차트 레이블
+                line_text     # 꺾은선차트 레이블
+            ).resolve_scale(y='independent').add_params(click)
 
         if is_combined:
             # 복합 차트 처리
@@ -1359,7 +1366,7 @@ if df is not None and not df.empty:
                     st.write("2. 선택된 필터 조건을 확인해보세요")
                     st.write("3. 데이터 파일에 해당 기간의 데이터가 있는지 확인해보세요")
         
-    st.caption(f"단위: {metric_option} = {unit_text}")
+    st.caption(f"단위: {unit_text}")
 
     if suppliers_all:
         # 안전한 업체별 구매 현황 쿼리

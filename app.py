@@ -784,9 +784,8 @@ if df is not None and not df.empty:
         
         # X축 설정 개선 - 중복 방지 및 정렬
         if time_unit == "월별":
-            # 월별 차트의 경우 시간 순서로 정렬하고 중복 제거
-            # scale에 domain을 명시적으로 지정하여 중복 방지
-            unique_months = sorted(time_df[time_name].dt.normalize().unique()) if pd.api.types.is_datetime64_any_dtype(time_df[time_name]) else sorted(time_df[time_name].unique())
+            # 월별 차트의 경우 시간을 정확히 처리하고 중복 방지
+            unique_months = sorted(time_df[time_name].unique())
             
             x_encoding = alt.X(
                 f"{time_name}:T", 
@@ -794,13 +793,15 @@ if df is not None and not df.empty:
                 axis=alt.Axis(
                     format=time_format, 
                     labelAngle=-45,
-                    labelOverlap=False,  # 레이블 겹침 방지
-                    labelSeparation=10   # 레이블 간격 조정
+                    labelOverlap=False,
+                    labelSeparation=15,
+                    values=unique_months  # 정확한 월 값들만 표시
                 ),
-                sort="ascending",  # 시간 순서로 정렬
+                sort="ascending",
                 scale=alt.Scale(
                     type="time",
-                    nice=False  # 자동 축 조정 비활성화하여 정확한 월만 표시
+                    nice=False,
+                    domain=unique_months  # 도메인을 정확한 월들로 제한
                 )
             )
         else:

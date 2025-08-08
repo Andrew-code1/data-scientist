@@ -168,6 +168,14 @@ if df is not None and not df.empty:
         groups_all = sorted([x for x in df["구매그룹"].dropna().astype(int).unique() if x > 0]) if "구매그룹" in df.columns else []
         suppliers_all = sorted([x for x in df["업체표시"].dropna().unique() 
                                 if str(x).strip() != '' and 'nan' not in str(x).lower() and not str(x).startswith('0_')]) if "업체표시" in df.columns else []
+        
+        # 새로운 필터 옵션들 추가
+        parts_all = sorted([x for x in df["파트"].dropna().unique() 
+                           if str(x).strip() != '' and 'nan' not in str(x).lower()]) if "파트" in df.columns else []
+        categories_all = sorted([x for x in df["카테고리(최종)"].dropna().unique() 
+                                if str(x).strip() != '' and 'nan' not in str(x).lower()]) if "카테고리(최종)" in df.columns else []
+        kpi_categories_all = sorted([x for x in df["KPI용카테고리"].dropna().unique() 
+                                    if str(x).strip() != '' and 'nan' not in str(x).lower()]) if "KPI용카테고리" in df.columns else []
 
         # 연월 범위 선택
         st.subheader("기간 입력 (YYYY-MM)")
@@ -195,6 +203,11 @@ if df is not None and not df.empty:
         sel_plants = multiselect_with_toggle("플랜트", plants_all, "pl") if plants_all else []
         sel_groups = multiselect_with_toggle("구매그룹", groups_all, "gr") if groups_all else []
         sel_suppliers = multiselect_with_toggle("공급업체", suppliers_all, "sp") if suppliers_all else []
+        
+        # 새로운 필터들 추가
+        sel_parts = multiselect_with_toggle("파트", parts_all, "pt") if parts_all else []
+        sel_categories = multiselect_with_toggle("카테고리(최종)", categories_all, "ct") if categories_all else []
+        sel_kpi_categories = multiselect_with_toggle("KPI용카테고리", kpi_categories_all, "kc") if kpi_categories_all else []
 
     # 연월 필터링을 위한 SQL 조건 생성
     ym_conditions = []
@@ -231,6 +244,14 @@ if df is not None and not df.empty:
                     names.append(s.strip())
             if names:
                 clauses.append(f"공급업체명 IN ({sql_list_str(names)})")
+    
+    # 새로운 필터 조건들 추가
+    if parts_all and sel_parts:
+        clauses.append(f"파트 IN ({sql_list_str(sel_parts)})")
+    if categories_all and sel_categories:
+        clauses.append(f"\"카테고리(최종)\" IN ({sql_list_str(sel_categories)})")
+    if kpi_categories_all and sel_kpi_categories:
+        clauses.append(f"KPI용카테고리 IN ({sql_list_str(sel_kpi_categories)})")
 
     where_sql = " WHERE " + " AND ".join(clauses)
 
@@ -240,13 +261,13 @@ if df is not None and not df.empty:
     with col1:
         metric_option = st.selectbox(
             "표시할 지표",
-            ["송장금액", "송장수량"],
+            ["송장금액", "송장수량", "송장금액+송장수량"],
             key="metric_select"
         )
     with col2:
         group_option = st.selectbox(
             "분석 단위",
-            ["전체", "플랜트별", "업체별", "플랜트+업체별"],
+            ["전체", "플랜트별", "업체별", "플랜트+업체별", "파트별", "카테고리(최종)별", "KPI용카테고리별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"],
             key="group_select"
         )
     with col3:
@@ -261,11 +282,19 @@ if df is not None and not df.empty:
         metric_name = "송장금액_백만원"
         unit_text = "백만원"
         y_title = "송장금액 (백만원)"
-    else:
+        is_combined = False
+    elif metric_option == "송장수량":
         metric_col = "SUM(송장수량)/1000"
         metric_name = "송장수량_천EA"
         unit_text = "천EA"
         y_title = "송장수량 (천EA)"
+        is_combined = False
+    else:  # 송장금액+송장수량
+        metric_col = "SUM(송장금액)/1000000, SUM(송장수량)/1000"
+        metric_name = "송장금액_백만원"  # 주 메트릭
+        unit_text = "백만원 + 천EA"
+        y_title = "송장금액 (백만원)"
+        is_combined = True
 
     # 시간 집계 단위에 따른 설정
     if time_unit == "월별":
@@ -280,22 +309,74 @@ if df is not None and not df.empty:
     if group_option == "전체":
         group_by_sql = ""
         group_col = ""
-        select_cols = f"{time_col} AS {time_name}, {metric_col} AS {metric_name}"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1"
     elif group_option == "플랜트별":
         group_by_sql = "플랜트,"
         group_col = "플랜트"
-        select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2"
     elif group_option == "업체별":
         group_by_sql = "공급업체명,"
         group_col = "공급업체명"
-        select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2"
-    else:  # 플랜트+업체별
+    elif group_option == "플랜트+업체별":
         group_by_sql = "플랜트, 공급업체명,"
         group_col = "플랜트_업체"
-        select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2, 3"
+    elif group_option == "파트별":
+        group_by_sql = "파트,"
+        group_col = "파트"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2"
+    elif group_option == "카테고리(최종)별":
+        group_by_sql = "\"카테고리(최종)\","
+        group_col = "카테고리(최종)"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2"
+    elif group_option == "KPI용카테고리별":
+        group_by_sql = "KPI용카테고리,"
+        group_col = "KPI용카테고리"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2"
+    elif group_option == "파트+카테고리(최종)별":
+        group_by_sql = "파트, \"카테고리(최종)\","
+        group_col = "파트_카테고리"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
+        group_by_clause = "GROUP BY 1, 2, 3"
+    else:  # 파트+KPI용카테고리별
+        group_by_sql = "파트, KPI용카테고리,"
+        group_col = "파트_KPI카테고리"
+        if is_combined:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
+        else:
+            select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
         group_by_clause = "GROUP BY 1, 2, 3"
 
     time_df = con.execute(
@@ -304,7 +385,7 @@ if df is not None and not df.empty:
         FROM data
         {where_sql}
         {group_by_clause}
-        ORDER BY 1, 2{', 3' if group_option == '플랜트+업체별' else ''}
+        ORDER BY 1, 2{', 3' if group_option in ['플랜트+업체별', '파트+카테고리(최종)별', '파트+KPI용카테고리별'] else ''}
         """
     ).fetchdf()
 
@@ -319,9 +400,42 @@ if df is not None and not df.empty:
         
         if group_option == "플랜트+업체별":
             time_df["플랜트_업체"] = time_df["플랜트"].astype(str) + "_" + time_df["공급업체명"]
+        elif group_option == "파트+카테고리(최종)별":
+            time_df["파트_카테고리"] = time_df["파트"].astype(str) + "_" + time_df["카테고리(최종)"]
+        elif group_option == "파트+KPI용카테고리별":
+            time_df["파트_KPI카테고리"] = time_df["파트"].astype(str) + "_" + time_df["KPI용카테고리"]
         
         # 데이터 테이블 표시
-        if group_option == "전체":
+        if is_combined:
+            # 복합 차트용 테이블 표시
+            if group_option == "전체":
+                display_cols = ["시간표시", "송장금액_백만원", "송장수량_천EA"]
+            elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
+                if group_option == "플랜트+업체별":
+                    display_cols = ["시간표시", "플랜트", "공급업체명", "송장금액_백만원", "송장수량_천EA"]
+                elif group_option == "파트+카테고리(최종)별":
+                    display_cols = ["시간표시", "파트", "카테고리(최종)", "송장금액_백만원", "송장수량_천EA"]
+                else:  # 파트+KPI용카테고리별
+                    display_cols = ["시간표시", "파트", "KPI용카테고리", "송장금액_백만원", "송장수량_천EA"]
+            else:
+                display_cols = ["시간표시", group_col, "송장금액_백만원", "송장수량_천EA"]
+            
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    "송장금액_백만원": st.column_config.NumberColumn(
+                        "송장금액(백만원)",
+                        format="%.0f"
+                    ),
+                    "송장수량_천EA": st.column_config.NumberColumn(
+                        "송장수량(천EA)",
+                        format="%.0f"
+                    )
+                }
+            )
+        elif group_option == "전체":
             display_cols = ["시간표시", metric_name]
             st.dataframe(
                 time_df[display_cols], 
@@ -330,7 +444,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.1f"
+                        format="%.0f"
                     )
                 }
             )
@@ -343,7 +457,33 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.1f"
+                        format="%.0f"
+                    )
+                }
+            )
+        elif group_option == "파트+카테고리(최종)별":
+            display_cols = ["시간표시", "파트", "카테고리(최종)", metric_name]
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.0f"
+                    )
+                }
+            )
+        elif group_option == "파트+KPI용카테고리별":
+            display_cols = ["시간표시", "파트", "KPI용카테고리", metric_name]
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.0f"
                     )
                 }
             )
@@ -356,7 +496,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.1f"
+                        format="%.0f"
                     )
                 }
             )
@@ -369,41 +509,131 @@ if df is not None and not df.empty:
         else:
             x_encoding = alt.X(f"{time_name}:O", title=time_unit)
 
-        if group_option == "전체":
-            chart = (
-                alt.Chart(time_df)
-                .mark_line(point=True)
-                .encode(
-                    x=x_encoding,
-                    y=alt.Y(f"{metric_name}:Q", title=y_title),
-                    tooltip=["시간표시:N", f"{metric_name}:Q"],
-                )
-                .add_params(click)
+        # 복합 차트 생성 함수
+        def create_combined_chart(data, group_col_name=None):
+            base_chart = alt.Chart(data)
+            
+            # 막대 차트 (송장금액)
+            bars = base_chart.mark_bar(opacity=0.7, color='steelblue').encode(
+                x=x_encoding,
+                y=alt.Y('송장금액_백만원:Q', title='송장금액(백만원)', axis=alt.Axis(titleColor='steelblue')),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('steelblue')
             )
+            
+            # 막대 차트 데이터 레이블
+            bar_text = bars.mark_text(dy=-5, fontSize=10, fontWeight='bold').encode(
+                text=alt.Text('송장금액_백만원:Q', format='.0f'),
+                y=alt.Y('송장금액_백만원:Q'),
+                color=alt.value('black')
+            )
+            
+            # 꺾은선 차트 (송장수량) - 보조축
+            lines = base_chart.mark_line(point=True, color='red', strokeWidth=3).encode(
+                x=x_encoding,
+                y=alt.Y('송장수량_천EA:Q', title='송장수량(천EA)', axis=alt.Axis(titleColor='red')),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
+            )
+            
+            # 꺾은선 차트 데이터 레이블
+            line_text = base_chart.mark_text(dy=-10, fontSize=10, fontWeight='bold', color='red').encode(
+                x=x_encoding,
+                y=alt.Y('송장수량_천EA:Q'),
+                text=alt.Text('송장수량_천EA:Q', format='.0f'),
+                color=alt.value('red')
+            )
+            
+            # 툴팁 설정
+            tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
+            if group_col_name:
+                tooltip_cols.insert(1, f"{group_col_name}:N")
+            
+            bars = bars.encode(tooltip=tooltip_cols)
+            lines = lines.encode(tooltip=tooltip_cols)
+            
+            # 레이어 결합하여 독립적인 Y축 사용
+            return alt.layer(bars, bar_text, lines, line_text).resolve_scale(y='independent').add_params(click)
+
+        if is_combined:
+            # 복합 차트 처리
+            if group_option == "전체":
+                chart = create_combined_chart(time_df)
+            elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
+                chart = create_combined_chart(time_df, group_col)
+            else:
+                chart = create_combined_chart(time_df, group_col)
+        elif group_option == "전체":
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                tooltip=["시간표시:N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-10, fontSize=10, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.Text(f"{metric_name}:Q", format='.0f')
+            )
+            chart = (line + text).add_params(click)
         elif group_option == "플랜트+업체별":
-            chart = (
-                alt.Chart(time_df)
-                .mark_line(point=True)
-                .encode(
-                    x=x_encoding,
-                    y=alt.Y(f"{metric_name}:Q", title=y_title),
-                    color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
-                    tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"],
-                )
-                .add_params(click)
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
+                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
             )
+            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                color=alt.Color("플랜트_업체:N")
+            )
+            chart = (line + text).add_params(click)
+        elif group_option == "파트+카테고리(최종)별":
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
+                tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                color=alt.Color("파트_카테고리:N")
+            )
+            chart = (line + text).add_params(click)
+        elif group_option == "파트+KPI용카테고리별":
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
+                tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                color=alt.Color("파트_KPI카테고리:N")
+            )
+            chart = (line + text).add_params(click)
         else:
-            chart = (
-                alt.Chart(time_df)
-                .mark_line(point=True)
-                .encode(
-                    x=x_encoding,
-                    y=alt.Y(f"{metric_name}:Q", title=y_title),
-                    color=alt.Color(f"{group_col}:N", title=group_col),
-                    tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"],
-                )
-                .add_params(click)
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color(f"{group_col}:N", title=group_col),
+                tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
             )
+            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                color=alt.Color(f"{group_col}:N")
+            )
+            chart = (line + text).add_params(click)
         
         # 차트 표시 및 클릭 이벤트 처리
         event = st.altair_chart(chart, use_container_width=True, key="main_chart")
@@ -574,9 +804,18 @@ if df is not None and not df.empty:
                        END AS 공급업체코드,
                     """
                 
+                # 새로운 컬럼들을 SELECT 절에 추가
+                additional_cols = ""
+                if "파트" in df.columns:
+                    additional_cols += ", 파트"
+                if "카테고리(최종)" in df.columns:
+                    additional_cols += ", \"카테고리(최종)\""
+                if "KPI용카테고리" in df.columns:
+                    additional_cols += ", KPI용카테고리"
+                
                 raw_data_query = f"""
                 SELECT strftime(마감월, '%Y-%m') AS 마감월, 플랜트, 구매그룹,{supplier_code_select}
-                       공급업체명, 자재 AS 자재코드, 자재명,
+                       공급업체명{additional_cols}, 자재 AS 자재코드, 자재명,
                        송장수량, 송장금액, 단가
                 FROM data
                 WHERE ({period_filter})
@@ -612,6 +851,14 @@ if df is not None and not df.empty:
                                 names.append(s.strip())
                         if names:
                             additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
+                
+                # 새로운 필터 조건들 추가
+                if parts_all and sel_parts:
+                    additional_filters.append(f"파트 IN ({sql_list_str(sel_parts)})")
+                if categories_all and sel_categories:
+                    additional_filters.append(f"\"카테고리(최종)\" IN ({sql_list_str(sel_categories)})")
+                if kpi_categories_all and sel_kpi_categories:
+                    additional_filters.append(f"KPI용카테고리 IN ({sql_list_str(sel_kpi_categories)})")
                 
                 # 그룹별 추가 필터
                 if group_option == "플랜트별" and 'selected_group' in locals() and selected_group is not None:
@@ -669,8 +916,50 @@ if df is not None and not df.empty:
                         )
                     
                     st.subheader("📋 상세 Raw 데이터")
+                    
+                    # 합계 행 추가
+                    if not raw_df.empty:
+                        # 숫자 컬럼들의 합계/평균 계산
+                        totals = {
+                            '송장수량': raw_df['송장수량'].sum(),
+                            '송장금액': raw_df['송장금액'].sum(),
+                            '단가': raw_df['단가'].mean()  # 단가는 평균으로 계산
+                        }
+                        
+                        # 합계 행 생성 - 모든 필수 컬럼 포함
+                        total_row_data = {
+                            '마감월': '합계',
+                            '플랜트': None,
+                            '구매그룹': None,
+                            '공급업체명': '전체 합계',
+                            '자재코드': None,
+                            '자재명': '총계',
+                            '송장수량': totals['송장수량'],
+                            '송장금액': totals['송장금액'],
+                            '단가': totals['단가']
+                        }
+                        
+                        # 공급업체코드 컬럼이 있는 경우 추가
+                        if "공급업체코드" in raw_df.columns:
+                            total_row_data['공급업체코드'] = None
+                        
+                        # 새로운 컬럼들이 있는 경우 추가
+                        if "파트" in raw_df.columns:
+                            total_row_data['파트'] = None
+                        if "카테고리(최종)" in raw_df.columns:
+                            total_row_data['카테고리(최종)'] = None
+                        if "KPI용카테고리" in raw_df.columns:
+                            total_row_data['KPI용카테고리'] = None
+                        
+                        total_row = pd.DataFrame([total_row_data])
+                        
+                        # 원본 데이터와 합계 행 결합
+                        raw_df_with_totals = pd.concat([raw_df, total_row], ignore_index=True)
+                    else:
+                        raw_df_with_totals = raw_df
+                    
                     st.dataframe(
-                        raw_df, 
+                        raw_df_with_totals, 
                         use_container_width=True, 
                         hide_index=True,
                         column_config={
@@ -736,18 +1025,47 @@ if df is not None and not df.empty:
 
         st.markdown("---")
         st.header(" 업체별 구매 현황")
+        
+        # 합계 행 추가
+        if not sup_df.empty:
+            # 숫자 컬럼들의 합계 계산
+            totals = {
+                '송장수량_천EA': sup_df['송장수량_천EA'].sum(),
+                '송장금액_백만원': sup_df['송장금액_백만원'].sum()
+            }
+            
+            # 합계 행 생성
+            if "공급업체코드" in sup_df.columns:
+                total_row = pd.DataFrame([{
+                    '공급업체코드': None,
+                    '공급업체명': '합계',
+                    '송장수량_천EA': totals['송장수량_천EA'],
+                    '송장금액_백만원': totals['송장금액_백만원']
+                }])
+            else:
+                total_row = pd.DataFrame([{
+                    '공급업체명': '합계',
+                    '송장수량_천EA': totals['송장수량_천EA'],
+                    '송장금액_백만원': totals['송장금액_백만원']
+                }])
+            
+            # 원본 데이터와 합계 행 결합
+            sup_df_with_totals = pd.concat([sup_df, total_row], ignore_index=True)
+        else:
+            sup_df_with_totals = sup_df
+        
         st.dataframe(
-            sup_df, 
+            sup_df_with_totals, 
             hide_index=True, 
             use_container_width=True,
             column_config={
                 "송장금액_백만원": st.column_config.NumberColumn(
                     "송장금액(백만원)",
-                    format="%.1f"
+                    format="%.0f"
                 ),
                 "송장수량_천EA": st.column_config.NumberColumn(
                     "송장수량(천EA)", 
-                    format="%.1f"
+                    format="%.0f"
                 )
             }
         )
@@ -848,11 +1166,11 @@ if df is not None and not df.empty:
                     column_config={
                         "송장금액_백만원": st.column_config.NumberColumn(
                             "송장금액(백만원)",
-                            format="%.1f"
+                            format="%.0f"
                         ),
                         "송장수량_천EA": st.column_config.NumberColumn(
                             "송장수량(천EA)", 
-                            format="%.1f"
+                            format="%.0f"
                         )
                     }
                 )
@@ -864,11 +1182,11 @@ if df is not None and not df.empty:
                 column_config={
                     "송장금액_백만원": st.column_config.NumberColumn(
                         "송장금액(백만원)",
-                        format="%.1f"
+                        format="%.0f"
                     ),
                     "송장수량_천EA": st.column_config.NumberColumn(
                         "송장수량(천EA)", 
-                        format="%.1f"
+                        format="%.0f"
                     ),
                     "단가": st.column_config.NumberColumn(
                         "단가",

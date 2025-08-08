@@ -509,48 +509,60 @@ if df is not None and not df.empty:
         else:
             x_encoding = alt.X(f"{time_name}:O", title=time_unit)
 
-        # 복합 차트 생성 함수
+        # 복합 차트 생성 함수 (이중축)
         def create_combined_chart(data, group_col_name=None):
             base_chart = alt.Chart(data)
-            
-            # 막대 차트 (송장금액)
-            bars = base_chart.mark_bar(opacity=0.7, color='steelblue').encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', title='송장금액(백만원)', axis=alt.Axis(titleColor='steelblue')),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('steelblue')
-            )
-            
-            # 막대 차트 데이터 레이블
-            bar_text = bars.mark_text(dy=-5, fontSize=10, fontWeight='bold').encode(
-                text=alt.Text('송장금액_백만원:Q', format='.0f'),
-                y=alt.Y('송장금액_백만원:Q'),
-                color=alt.value('black')
-            )
-            
-            # 꺾은선 차트 (송장수량) - 보조축
-            lines = base_chart.mark_line(point=True, color='red', strokeWidth=3).encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', title='송장수량(천EA)', axis=alt.Axis(titleColor='red')),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
-            )
-            
-            # 꺾은선 차트 데이터 레이블
-            line_text = base_chart.mark_text(dy=-10, fontSize=10, fontWeight='bold', color='red').encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q'),
-                text=alt.Text('송장수량_천EA:Q', format='.0f'),
-                color=alt.value('red')
-            )
             
             # 툴팁 설정
             tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
             if group_col_name:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            bars = bars.encode(tooltip=tooltip_cols)
-            lines = lines.encode(tooltip=tooltip_cols)
+            # 왼쪽 축 - 송장금액 막대 차트
+            bars = base_chart.mark_bar(opacity=0.7).encode(
+                x=x_encoding,
+                y=alt.Y('송장금액_백만원:Q', 
+                       title='송장금액(백만원)', 
+                       axis=alt.Axis(orient='left', titleColor='steelblue', grid=True)),
+                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
+                tooltip=tooltip_cols
+            )
             
-            # 레이어 결합하여 독립적인 Y축 사용
+            # 막대 차트 데이터 레이블 (0이 아닌 값만)
+            bar_text = base_chart.mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y('송장금액_백만원:Q'),
+                text=alt.condition(
+                    alt.datum.송장금액_백만원 > 0,
+                    alt.Text('송장금액_백만원:Q', format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
+            )
+            
+            # 오른쪽 축 - 송장수량 꺾은선 차트
+            lines = base_chart.mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
+                x=x_encoding,
+                y=alt.Y('송장수량_천EA:Q', 
+                       title='송장수량(천EA)', 
+                       axis=alt.Axis(orient='right', titleColor='red', grid=False)),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
+                tooltip=tooltip_cols
+            )
+            
+            # 꺾은선 차트 데이터 레이블 (0이 아닌 값만)
+            line_text = base_chart.mark_text(dy=-12, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y('송장수량_천EA:Q'),
+                text=alt.condition(
+                    alt.datum.송장수량_천EA > 0,
+                    alt.Text('송장수량_천EA:Q', format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
+            )
+            
+            # 독립적인 Y축을 가진 이중축 차트
             return alt.layer(bars, bar_text, lines, line_text).resolve_scale(y='independent').add_params(click)
 
         if is_combined:
@@ -571,7 +583,11 @@ if df is not None and not df.empty:
             text = base.mark_text(dy=-10, fontSize=10, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
-                text=alt.Text(f"{metric_name}:Q", format='.0f')
+                text=alt.condition(
+                    alt.expr(f"datum.{metric_name} > 0"),
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                )
             )
             chart = (line + text).add_params(click)
         elif group_option == "플랜트+업체별":
@@ -585,7 +601,11 @@ if df is not None and not df.empty:
             text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
-                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                text=alt.condition(
+                    alt.expr(f"datum.{metric_name} > 0"),
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
                 color=alt.Color("플랜트_업체:N")
             )
             chart = (line + text).add_params(click)
@@ -600,7 +620,11 @@ if df is not None and not df.empty:
             text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
-                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                text=alt.condition(
+                    alt.expr(f"datum.{metric_name} > 0"),
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
                 color=alt.Color("파트_카테고리:N")
             )
             chart = (line + text).add_params(click)
@@ -615,7 +639,11 @@ if df is not None and not df.empty:
             text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
-                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                text=alt.condition(
+                    alt.expr(f"datum.{metric_name} > 0"),
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
                 color=alt.Color("파트_KPI카테고리:N")
             )
             chart = (line + text).add_params(click)
@@ -630,7 +658,11 @@ if df is not None and not df.empty:
             text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
-                text=alt.Text(f"{metric_name}:Q", format='.0f'),
+                text=alt.condition(
+                    alt.expr(f"datum.{metric_name} > 0"),
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
                 color=alt.Color(f"{group_col}:N")
             )
             chart = (line + text).add_params(click)

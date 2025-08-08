@@ -332,11 +332,27 @@ if df is not None and not df.empty:
                     if 'groups_list' in agg_info:
                         st.write(f"**그룹 예시**: {', '.join(map(str, agg_info['groups_list'][:5]))}")
             
-            # 중복 월 경고
-            if agg_info['total_rows'] > agg_info['unique_months'] * (agg_info.get('unique_groups', 1)):
-                expected_rows = agg_info['unique_months'] * agg_info.get('unique_groups', 1)
-                st.warning(f"⚠️ 예상보다 많은 데이터 행이 있습니다. 예상: {expected_rows}, 실제: {agg_info['total_rows']}")
-                st.info("이는 같은 월에 여러 데이터가 중복되어 차트에 같은 월이 여러 번 나타날 수 있음을 의미합니다.")
+            # 중복 월 경고 - 더 상세한 분석
+            expected_rows = agg_info['unique_months'] * (agg_info.get('unique_groups', 1) if agg_info['group_option'] != "전체" else 1)
+            if agg_info['total_rows'] > expected_rows:
+                st.warning(f"⚠️ X축 중복 감지! 예상: {expected_rows}행, 실제: {agg_info['total_rows']}행")
+                st.error("이는 X축에 같은 월이 여러 번 나타나는 원인입니다.")
+                
+                # 해결 방안 제시
+                st.info("**해결 방안:**")
+                if agg_info['group_option'] == "전체":
+                    st.write("- 원본 데이터에 같은 월의 중복 레코드가 있을 가능성")
+                    st.write("- SQL 집계가 올바르게 되지 않고 있음")
+                else:
+                    st.write("- 각 그룹별로 시계열을 보려면 정상적인 현상일 수 있음")
+                    st.write("- 전체 합계를 보려면 '전체' 분석 옵션을 선택하세요")
+            else:
+                st.success("✅ 정상적인 집계 결과입니다.")
+            
+            # 상세 차트 데이터 분석 추가
+            if 'chart_data_sample' in agg_info:
+                with st.expander("차트 데이터 샘플 (X축 중복 분석용)"):
+                    st.dataframe(agg_info['chart_data_sample'], use_container_width=True)
             
             with st.expander("SQL 쿼리 확인"):
                 st.code(agg_info['sql_query'], language="sql")
@@ -506,7 +522,8 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1"
+        # 시간별로만 그룹화하여 각 월당 1개 행만 생성
+        group_by_clause = f"GROUP BY {time_col}"
     elif group_option == "플랜트별":
         group_by_sql = "플랜트,"
         group_col = "플랜트"
@@ -514,7 +531,8 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2"
+        # 시간과 플랜트별로만 그룹화
+        group_by_clause = f"GROUP BY {time_col}, 플랜트"
     elif group_option == "업체별":
         group_by_sql = "공급업체명,"
         group_col = "공급업체명"
@@ -522,7 +540,8 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2"
+        # 시간과 업체별로만 그룹화
+        group_by_clause = f"GROUP BY {time_col}, 공급업체명"
     elif group_option == "플랜트+업체별":
         group_by_sql = "플랜트, 공급업체명,"
         group_col = "플랜트_업체"
@@ -530,7 +549,8 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2, 3"
+        # 시간, 플랜트, 업체별로 그룹화
+        group_by_clause = f"GROUP BY {time_col}, 플랜트, 공급업체명"
     elif group_option == "파트별":
         group_by_sql = "파트,"
         group_col = "파트"
@@ -538,7 +558,7 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2"
+        group_by_clause = f"GROUP BY {time_col}, 파트"
     elif group_option == "카테고리(최종)별":
         group_by_sql = "\"카테고리(최종)\","
         group_col = "카테고리(최종)"
@@ -546,7 +566,7 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2"
+        group_by_clause = f"GROUP BY {time_col}, \"카테고리(최종)\""
     elif group_option == "KPI용카테고리별":
         group_by_sql = "KPI용카테고리,"
         group_col = "KPI용카테고리"
@@ -554,7 +574,7 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2"
+        group_by_clause = f"GROUP BY {time_col}, KPI용카테고리"
     elif group_option == "파트+카테고리(최종)별":
         group_by_sql = "파트, \"카테고리(최종)\","
         group_col = "파트_카테고리"
@@ -562,7 +582,7 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2, 3"
+        group_by_clause = f"GROUP BY {time_col}, 파트, \"카테고리(최종)\""
     else:  # 파트+KPI용카테고리별
         group_by_sql = "파트, KPI용카테고리,"
         group_col = "파트_KPI카테고리"
@@ -570,7 +590,7 @@ if df is not None and not df.empty:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} SUM(송장금액)/1000000 AS 송장금액_백만원, SUM(송장수량)/1000 AS 송장수량_천EA"
         else:
             select_cols = f"{time_col} AS {time_name}, {group_by_sql} {metric_col} AS {metric_name}"
-        group_by_clause = "GROUP BY 1, 2, 3"
+        group_by_clause = f"GROUP BY {time_col}, 파트, KPI용카테고리"
 
     # SQL 쿼리 실행 및 디버깅 정보 수집
     sql_query = f"""
@@ -598,6 +618,21 @@ if df is not None and not df.empty:
         if group_option != "전체" and group_col in time_df.columns:
             debug_aggregation_info['unique_groups'] = time_df[group_col].nunique()
             debug_aggregation_info['groups_list'] = time_df[group_col].unique().tolist()[:10]  # 최대 10개만
+        else:
+            debug_aggregation_info['unique_groups'] = 1  # 전체 분석시
+        
+        # 차트 데이터 샘플 추가 (X축 중복 분석용)
+        sample_cols = [time_name]
+        if group_option != "전체" and group_col in time_df.columns:
+            sample_cols.append(group_col)
+        # 첫 번째 메트릭 컬럼 추가
+        if is_combined:
+            sample_cols.extend(['송장금액_백만원', '송장수량_천EA'])
+        else:
+            sample_cols.append(metric_name)
+        
+        # 상위 10개 행 샘플
+        debug_aggregation_info['chart_data_sample'] = time_df[sample_cols].head(10)
         
         st.session_state["debug_aggregation_info"] = debug_aggregation_info
 
@@ -624,8 +659,22 @@ if df is not None and not df.empty:
         else:  # 연도별
             time_df["시간표시"] = time_df[time_name].astype(int).astype(str) + "년"
         
-        # 데이터 정렬 - 시간 순서로 정렬하여 차트에서 올바른 순서 보장
-        time_df = time_df.sort_values([time_name] + ([group_col] if group_option != "전체" and group_col in time_df.columns else []))
+        # 데이터 정렬 및 중복 방지 - 시간 순서로 정렬하여 차트에서 올바른 순서 보장
+        sort_columns = [time_name]
+        if group_option != "전체" and group_col in time_df.columns:
+            sort_columns.append(group_col)
+        
+        time_df = time_df.sort_values(sort_columns)
+        
+        # 추가 안전장치: 완전히 동일한 행이 있다면 제거 (GROUP BY가 제대로 작동하지 않은 경우 대비)
+        if group_option == "전체":
+            # 전체 분석의 경우 같은 시간에 대해서는 1개 행만 있어야 함
+            time_df = time_df.drop_duplicates(subset=[time_name], keep='first')
+        else:
+            # 그룹별 분석의 경우 (시간 + 그룹)에 대해 1개 행만 있어야 함
+            if group_col in time_df.columns:
+                dedup_columns = [time_name, group_col]
+                time_df = time_df.drop_duplicates(subset=dedup_columns, keep='first')
         
         if group_option == "플랜트+업체별":
             time_df["플랜트_업체"] = time_df["플랜트"].astype(str) + "_" + time_df["공급업체명"]
@@ -736,22 +785,32 @@ if df is not None and not df.empty:
         # X축 설정 개선 - 중복 방지 및 정렬
         if time_unit == "월별":
             # 월별 차트의 경우 시간 순서로 정렬하고 중복 제거
+            # scale에 domain을 명시적으로 지정하여 중복 방지
+            unique_months = sorted(time_df[time_name].dt.normalize().unique()) if pd.api.types.is_datetime64_any_dtype(time_df[time_name]) else sorted(time_df[time_name].unique())
+            
             x_encoding = alt.X(
                 f"{time_name}:T", 
                 title=time_unit, 
                 axis=alt.Axis(
                     format=time_format, 
                     labelAngle=-45,
-                    labelOverlap=False  # 레이블 겹침 방지
+                    labelOverlap=False,  # 레이블 겹침 방지
+                    labelSeparation=10   # 레이블 간격 조정
                 ),
-                sort="ascending"  # 시간 순서로 정렬
+                sort="ascending",  # 시간 순서로 정렬
+                scale=alt.Scale(
+                    type="time",
+                    nice=False  # 자동 축 조정 비활성화하여 정확한 월만 표시
+                )
             )
         else:
             # 연도별의 경우
+            unique_years = sorted(time_df[time_name].unique())
             x_encoding = alt.X(
                 f"{time_name}:O", 
                 title=time_unit,
-                sort="ascending"
+                sort="ascending",
+                scale=alt.Scale(domain=unique_years)  # 도메인 명시적 지정
             )
 
         # 복합 차트 생성 함수 (이중축)

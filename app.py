@@ -65,12 +65,19 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
-        # 공급업체코드 안전하게 처리 - 원본 값 보존하면서 정리
-        df["공급업체코드"] = df["공급업체코드"].astype(str).str.strip()
-        # 빈 값, nan, None 등만 공백으로 처리하고 나머지는 보존
-        df["공급업체코드"] = df["공급업체코드"].apply(
-            lambda x: "" if pd.isna(x) or str(x).lower() in ['nan', 'none', ''] or str(x).strip() == '' else str(x).strip()
-        )
+        # 공급업체코드 안전하게 처리 - 소수점을 정수로 변환
+        def clean_supplier_code(x):
+            if pd.isna(x) or str(x).lower() in ['nan', 'none', ''] or str(x).strip() == '':
+                return ""
+            try:
+                # 숫자로 변환 가능한 경우 정수로 변환
+                float_val = float(str(x).strip())
+                return str(int(float_val))
+            except (ValueError, TypeError):
+                # 변환 불가능한 경우 원본 문자열 유지
+                return str(x).strip()
+        
+        df["공급업체코드"] = df["공급업체코드"].apply(clean_supplier_code)
         # 공급업체코드가 있는 경우만 업체표시 생성
         df["업체표시"] = df.apply(
             lambda row: (
@@ -163,45 +170,25 @@ if df is not None and not df.empty:
                                 if str(x).strip() != '' and 'nan' not in str(x).lower() and not str(x).startswith('0_')]) if "업체표시" in df.columns else []
 
         # 연월 범위 선택
-        min_ym, max_ym = min(yearmonths_all), max(yearmonths_all)
+        st.subheader("기간 입력 (YYYY-MM)")
         
-        st.subheader("연월 범위 (YYYY-MM)")
-        ym_filter_type = st.radio("선택 방식", ["직접 선택", "시작/끝 입력"], horizontal=True)
+        # 기본값을 최근 6개월로 설정
+        default_start_idx = max(0, len(yearmonths_all) - 6)
+        default_end_idx = len(yearmonths_all) - 1
         
-        if ym_filter_type == "직접 선택":
-            # 슬라이더 기반 범위 선택
-            if len(yearmonths_all) >= 2:
-                default_start_idx = max(0, len(yearmonths_all) - 6)  # 최근 6개월 시작점
-                default_end_idx = len(yearmonths_all) - 1  # 마지막 월
-                
-                selected_range = st.select_slider(
-                    "연월 범위 선택 (라인에서 범위 드래그)",
-                    options=range(len(yearmonths_all)),
-                    value=(default_start_idx, default_end_idx),
-                    format_func=lambda idx: yearmonths_all[idx],
-                    key="yearmonth_range_slider"
-                )
-                
-                start_idx, end_idx = selected_range
-                sel_yearmonths = yearmonths_all[start_idx:end_idx+1]
-            else:
-                # 데이터가 1개월 이하인 경우
-                sel_yearmonths = yearmonths_all
-                st.info(f"사용 가능한 데이터: {yearmonths_all[0] if yearmonths_all else '없음'}")
+        col1, col2 = st.columns(2)
+        with col1:
+            start_ym = st.selectbox("시작 연월", options=yearmonths_all, index=default_start_idx, key="start_ym")
+        with col2:
+            end_ym = st.selectbox("끝 연월", options=yearmonths_all, index=default_end_idx, key="end_ym")
+        
+        # 범위 내 연월들 선택
+        start_idx = yearmonths_all.index(start_ym)
+        end_idx = yearmonths_all.index(end_ym)
+        if start_idx <= end_idx:
+            sel_yearmonths = yearmonths_all[start_idx:end_idx+1]
         else:
-            col1, col2 = st.columns(2)
-            with col1:
-                start_ym = st.selectbox("시작 연월", options=yearmonths_all, index=0, key="start_ym")
-            with col2:
-                end_ym = st.selectbox("끝 연월", options=yearmonths_all, index=len(yearmonths_all)-1, key="end_ym")
-            
-            # 범위 내 연월들 선택
-            start_idx = yearmonths_all.index(start_ym)
-            end_idx = yearmonths_all.index(end_ym)
-            if start_idx <= end_idx:
-                sel_yearmonths = yearmonths_all[start_idx:end_idx+1]
-            else:
-                sel_yearmonths = yearmonths_all[end_idx:start_idx+1]
+            sel_yearmonths = yearmonths_all[end_idx:start_idx+1]
         
         st.write(f"선택된 연월: {len(sel_yearmonths)}개월 ({min(sel_yearmonths)} ~ {max(sel_yearmonths)})")
 

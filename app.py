@@ -673,7 +673,7 @@ if df is not None and not df.empty:
             FROM data
             {where_sql}
             GROUP BY {group_by_clause}
-            ORDER BY {order_by_clause} DESC
+            ORDER BY 송장금액_백만원 DESC, 송장수량_천EA DESC
             """
         ).fetchdf()
 

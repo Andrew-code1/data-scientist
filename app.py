@@ -27,14 +27,31 @@ st.markdown("""
 def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = df.columns.str.strip()
     rename_map: dict[str, str] = {}
+    
+    # 향상된 컬럼 매핑 로직
+    column_mappings = {
+        # 공급업체 관련
+        ["업체명", "공급업체명", "밤더명"]: "공급업체명",
+        ["공급업체", "공급사코드", "공급업체코드", "밤더코드"]: "공급업체코드",
+        # 구매그룹 관련
+        ["구매그룹명", "구매그룹"]: "구매그룹",
+        # 송장 관련
+        ["송장금액", "인보이스금액", "발주금액"]: "송장금액",
+        ["송장수량", "인보이스수량", "발주수량"]: "송장수량",
+        # 자재 관련
+        ["자재", "자재코드", "자재번호"]: "자재",
+        ["자재명", "자재설명"]: "자재명"
+    }
+    
     for col in df.columns:
-        norm = col.replace(" ", "")
-        if norm in {"업체명"}:
-            rename_map[col] = "공급업체명"
-        elif norm in {"공급업체", "공급사코드"}:
-            rename_map[col] = "공급업체코드"
-        elif norm == "구매그룹명":
-            rename_map[col] = "구매그룹"
+        norm = col.replace(" ", "").replace("(", "").replace(")", "").strip()
+        
+        # 각 매핑 그룹을 확인하여 매칭되는 컬럼 찾기
+        for variations, target_name in column_mappings.items():
+            if any(norm == var.replace(" ", "") for var in variations):
+                rename_map[col] = target_name
+                break
+    
     df = df.rename(columns=rename_map)
     if df.columns.duplicated().any():
         df = df.loc[:, ~df.columns.duplicated()]
@@ -44,8 +61,16 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def load_csv(upload: BytesIO) -> pd.DataFrame:
     df = pd.read_csv(upload, encoding="cp949", low_memory=False)
+    
+    # 원본 컬럼 정보 저장 (디버깅용)
+    original_columns = list(df.columns)
+    st.session_state["original_columns"] = original_columns
+    
     df = _standardize_columns(df)
-
+    
+    # 컬럼 변환 후 정보 저장
+    st.session_state["processed_columns"] = list(df.columns)
+    
     if "마감월" not in df.columns:
         st.error(" '마감월' 컬럼을 찾을 수 없습니다. 헤더명을 확인해 주세요.")
         st.stop()
@@ -59,8 +84,60 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     df["연월"] = df["마감월"].dt.to_period("M").dt.to_timestamp()
 
     num_cols: List[str] = [c for c in ["송장수량", "송장금액", "단가", "플랜트", "구매그룹"] if c in df.columns]
+    
+    # 숫자 컬럼 처리 전 데이터 샘플 저장 (디버깅용)
+    numeric_debug_info = {}
+    for col in ["송장수량", "송장금액", "단가"]:
+        if col in df.columns:
+            sample_values = df[col].head(5).tolist()
+            numeric_debug_info[col] = {
+                'sample_values': sample_values,
+                'data_type': str(df[col].dtype),
+                'null_count': df[col].isnull().sum(),
+                'total_count': len(df[col])
+            }
+    st.session_state["numeric_debug_info"] = numeric_debug_info
+    
     if num_cols:
-        df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0)
+        # 숫자 변환 시 오류 추적
+        conversion_errors = {}
+        for col in num_cols:
+            original_values = df[col].copy()
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            
+            # 변환 실패한 값들 추적
+            failed_conversion = original_values[pd.to_numeric(original_values, errors="coerce").isnull()]
+            if not failed_conversion.empty:
+                conversion_errors[col] = failed_conversion.head(10).tolist()
+        
+        st.session_state["conversion_errors"] = conversion_errors
+    
+    # 데이터 품질 검사
+    data_quality_issues = []
+    
+    # 송장금액 검사
+    if "송장금액" in df.columns:
+        zero_amount = (df["송장금액"] == 0).sum()
+        total_rows = len(df)
+        if zero_amount > total_rows * 0.5:  # 50% 이상이 0인 경우
+            data_quality_issues.append(f"송장금액: {zero_amount}/{total_rows}건이 0 또는 비어있음")
+    else:
+        data_quality_issues.append("송장금액 컬럼이 발견되지 않음")
+    
+    # 송장수량 검사  
+    if "송장수량" in df.columns:
+        zero_quantity = (df["송장수량"] == 0).sum()
+        total_rows = len(df)
+        if zero_quantity > total_rows * 0.5:
+            data_quality_issues.append(f"송장수량: {zero_quantity}/{total_rows}건이 0 또는 비어있음")
+    else:
+        data_quality_issues.append("송장수량 컬럼이 발견되지 않음")
+    
+    # 공급업체 정보 검사
+    if "공급업체명" not in df.columns:
+        data_quality_issues.append("공급업체명 컬럼이 발견되지 않음")
+    
+    st.session_state["data_quality_issues"] = data_quality_issues
 
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
@@ -144,7 +221,10 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
 
 with st.sidebar:
     st.header("CSV 업로드")
-    uploaded_file = st.file_uploader("backdata.csv (cp949)", type="csv")
+    st.info("파일 요구사항:")
+    st.write("- 인코딩: CP949")
+    st.write("- 필수 컬럼: 마감월, 송장금액, 송장수량")
+    uploaded_file = st.file_uploader("CSV 파일 선택", type="csv", help="CP949 인코딩으로 저장된 CSV 파일")
 
 if uploaded_file:
     with st.spinner("CSV 불러오는 중..."):
@@ -154,9 +234,84 @@ if uploaded_file:
     df: Optional[pd.DataFrame] = st.session_state["df"]
 else:
     st.info("먼저 CSV 파일을 업로드해 주세요.")
+    with st.expander("파일 업로드 도움말", expanded=False):
+        st.write("**예상 컬럼 구조:**")
+        st.write("- 마감월: 날짜 정보")
+        st.write("- 송장금액: 숫자 데이터")
+        st.write("- 송장수량: 숫자 데이터")
+        st.write("- 공급업체명 또는 업체명")
+        st.write("- 자재, 자재명")
+        
+        st.write("**지원되는 컬럼명 변형:**")
+        st.write("- 업체명 → 공급업체명")
+        st.write("- 공급업체 → 공급업체코드")
+        st.write("- 인보이스금액 → 송장금액")
+        st.write("- 발주수량 → 송장수량")
+    
     df = None
 
 if df is not None and not df.empty:
+    # 디버깅 섹션 추가
+    with st.expander("파일 분석 및 디버깅 정보 확인", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("원본 컬럼 목록")
+            if "original_columns" in st.session_state:
+                for i, col in enumerate(st.session_state["original_columns"], 1):
+                    st.write(f"{i}. {col}")
+            
+            # 주요 컬럼 존재 여부 확인
+            st.subheader("주요 컬럼 검사")
+            key_columns = ["송장금액", "송장수량", "공급업체명", "자재", "자재명"]
+            for col in key_columns:
+                status = "✓" if col in df.columns else "❌"
+                st.write(f"{status} {col}")
+        
+        with col2:
+            st.subheader("처리 후 컬럼 목록")
+            if "processed_columns" in st.session_state:
+                for i, col in enumerate(st.session_state["processed_columns"], 1):
+                    st.write(f"{i}. {col}")
+            
+            # 숫자 컬럼 데이터 품질 확인
+            st.subheader("숫자 데이터 품질")
+            if "numeric_debug_info" in st.session_state:
+                for col, info in st.session_state["numeric_debug_info"].items():
+                    st.write(f"**{col}**:")
+                    st.write(f"- 데이터 타입: {info['data_type']}")
+                    st.write(f"- 널 값: {info['null_count']}/{info['total_count']}")
+                    st.write(f"- 샘플 값: {info['sample_values']}")
+        
+        # 변환 오류 정보
+        if "conversion_errors" in st.session_state and st.session_state["conversion_errors"]:
+            st.subheader("데이터 변환 문제")
+            for col, errors in st.session_state["conversion_errors"].items():
+                if errors:
+                    st.error(f"{col} 컬럼에서 숫자로 변환할 수 없는 값들: {errors}")
+        
+        # 데이터 품질 경고
+        if "data_quality_issues" in st.session_state and st.session_state["data_quality_issues"]:
+            st.subheader("데이터 품질 문제")
+            for issue in st.session_state["data_quality_issues"]:
+                st.warning(issue)
+            
+            # 개선 제안
+            st.info("해결 방안:")
+            st.write("1. CSV 파일의 컬럼명이 올바른지 확인하세요")
+            st.write("2. 송장금액, 송장수량 컬럼에 숫자 데이터가 들어있는지 확인하세요")
+            st.write("3. 파일 인코딩이 CP949인지 확인하세요")
+        
+        # 데이터 미리보기
+        st.subheader("데이터 미리보기 (5개 행)")
+        preview_df = df.head()
+        # 주요 컬럼만 보여주기 위해 컬럼 선택
+        key_cols = [col for col in ["마감월", "공급업체명", "자재", "자재명", "송장수량", "송장금액", "단가"] if col in preview_df.columns]
+        if key_cols:
+            st.dataframe(preview_df[key_cols], use_container_width=True)
+        else:
+            st.dataframe(preview_df, use_container_width=True)
+    
     con = duckdb.connect(database=":memory:")
     con.register("data", df)
 
@@ -390,7 +545,11 @@ if df is not None and not df.empty:
     ).fetchdf()
 
     if time_df.empty:
-        st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
+        st.error("선택한 조건에 해당하는 데이터가 없습니다.")
+        st.info("해결 방법:")
+        st.write("1. 다른 기간을 선택해보세요")
+        st.write("2. 필터 조건을 더 넓히 설정해보세요")
+        st.write("3. 송장금액이나 송장수량 데이터가 없을 수 있습니다")
     else:
         # 시간 표시 컬럼 생성
         if time_unit == "월별":
@@ -913,6 +1072,15 @@ if df is not None and not df.empty:
                     period_text = f"{min(query_yearmonths)}~{max(query_yearmonths)}" if len(query_yearmonths) > 1 else query_yearmonths[0]
                     st.success(f"**{period_text} 기간 총 {len(raw_df):,}건의 데이터를 찾았습니다!**")
                     
+                    # 데이터 품질 간단 체크
+                    zero_amounts = (raw_df['송장금액'] == 0).sum() if '송장금액' in raw_df.columns else 0
+                    zero_quantities = (raw_df['송장수량'] == 0).sum() if '송장수량' in raw_df.columns else 0
+                    
+                    if zero_amounts > len(raw_df) * 0.3:
+                        st.warning(f"주의: 송장금액이 0인 데이터가 {zero_amounts}건 있습니다.")
+                    if zero_quantities > len(raw_df) * 0.3:
+                        st.warning(f"주의: 송장수량이 0인 데이터가 {zero_quantities}건 있습니다.")
+                    
                     # 기간별 요약 정보 먼저 표시
                     if len(query_yearmonths) > 1:
                         summary_df = raw_df.groupby('마감월').agg({
@@ -1023,6 +1191,10 @@ if df is not None and not df.empty:
                     )
                 else:
                     st.warning("해당 조건에 맞는 상세 데이터가 없습니다.")
+                    st.info("해결 방법:")
+                    st.write("1. 다른 기간을 선택해보세요")
+                    st.write("2. 선택된 필터 조건을 확인해보세요")
+                    st.write("3. 데이터 파일에 해당 기간의 데이터가 있는지 확인해보세요")
         
     st.caption(f"단위: {metric_option} = {unit_text}")
 
@@ -1179,7 +1351,12 @@ if df is not None and not df.empty:
         st.write(f"검색 결과: **{len(search_df):,}건** 일치")
         
         if search_df.empty:
-            st.info("검색 결과가 없습니다.")
+            st.warning("검색 결과가 없습니다.")
+            st.info("검색 팁:")
+            st.write("1. 와일드카드 '*' 사용: *퍼퓸*1L*")
+            st.write("2. 더 짧은 키워드 사용: 퍼퓸 대신 *퍼*")
+            st.write("3. 자재코드로도 검색해보세요")
+            st.write("4. 현재 선택된 기간과 필터 조건을 확인해보세요")
         else:
             # 연월별 검색 결과 요약
             if len(search_df) > 0 and len(sel_yearmonths) > 1:

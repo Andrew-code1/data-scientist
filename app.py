@@ -584,7 +584,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
-                    alt.expr(f"datum.{metric_name} > 0"),
+                    f"datum.{metric_name} > 0",
                     alt.Text(f"{metric_name}:Q", format='.0f'),
                     alt.value('')
                 )
@@ -602,7 +602,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
-                    alt.expr(f"datum.{metric_name} > 0"),
+                    f"datum.{metric_name} > 0",
                     alt.Text(f"{metric_name}:Q", format='.0f'),
                     alt.value('')
                 ),
@@ -621,7 +621,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
-                    alt.expr(f"datum.{metric_name} > 0"),
+                    f"datum.{metric_name} > 0",
                     alt.Text(f"{metric_name}:Q", format='.0f'),
                     alt.value('')
                 ),
@@ -640,7 +640,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
-                    alt.expr(f"datum.{metric_name} > 0"),
+                    f"datum.{metric_name} > 0",
                     alt.Text(f"{metric_name}:Q", format='.0f'),
                     alt.value('')
                 ),
@@ -659,7 +659,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
-                    alt.expr(f"datum.{metric_name} > 0"),
+                    f"datum.{metric_name} > 0",
                     alt.Text(f"{metric_name}:Q", format='.0f'),
                     alt.value('')
                 ),

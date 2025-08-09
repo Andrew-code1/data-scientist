@@ -577,6 +577,14 @@ if df is not None and not df.empty:
             time_df["플랜트_차트"] = "플랜트" + time_df["플랜트"].astype(str)
         if "구매그룹" in time_df.columns:
             time_df["구매그룹_차트"] = "구매그룹" + time_df["구매그룹"].astype(str)
+        if "파트" in time_df.columns:
+            time_df["파트_차트"] = time_df["파트"].astype(str)
+        if "카테고리(최종)" in time_df.columns:
+            time_df["카테고리최종_차트"] = time_df["카테고리(최종)"].astype(str)
+        if "KPI용카테고리" in time_df.columns:
+            time_df["KPI카테고리_차트"] = time_df["KPI용카테고리"].astype(str)
+        if "공급업체명" in time_df.columns:
+            time_df["공급업체_차트"] = time_df["공급업체명"].astype(str)
         
         # 추가 안전장치: 완전히 동일한 행이 있다면 제거 (GROUP BY가 제대로 작동하지 않은 경우 대비)
         if group_option == "전체":
@@ -847,10 +855,25 @@ if df is not None and not df.empty:
             elif group_option == "플랜트별":
                 chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
                 chart = create_combined_chart(time_df, chart_group_col)
-            elif group_option == "구매그룹별":
-                chart_group_col = "구매그룹_차트" if "구매그룹_차트" in time_df.columns else "구매그룹"
+            elif group_option == "업체별":
+                chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
                 chart = create_combined_chart(time_df, chart_group_col)
-            else:  # 기타 모든 그룹별 분석
+            elif group_option == "파트별":
+                chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
+                chart = create_combined_chart(time_df, chart_group_col)
+            elif group_option == "카테고리(최종)별":
+                chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
+                chart = create_combined_chart(time_df, chart_group_col)
+            elif group_option == "KPI용카테고리별":
+                chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
+                chart = create_combined_chart(time_df, chart_group_col)
+            elif group_option == "플랜트+업체별":
+                chart = create_combined_chart(time_df, "플랜트_업체")
+            elif group_option == "파트+카테고리(최종)별":
+                chart = create_combined_chart(time_df, "파트_카테고리")
+            elif group_option == "파트+KPI용카테고리별":
+                chart = create_combined_chart(time_df, "파트_KPI카테고리")
+            else:  # 기타 그룹별 분석 (fallback)
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
             base = alt.Chart(time_df)

@@ -748,12 +748,20 @@ if df is not None and not df.empty:
         def create_combined_chart(data, group_col_name=None):
             # 데이터 포인트 수에 따른 동적 막대 두께 계산
             data_points = len(data[time_name].unique()) if not data.empty else 1
-            # 2개월이면 두껍게, 12개월이면 적당하게
-            bar_size = max(15, min(60, 120 - data_points * 5))
+            group_count = len(data[group_col_name].unique()) if group_col_name and group_col_name in data.columns else 1
+            
+            # 그룹 수가 많을 때 막대 크기 조정
+            if group_count > 10:
+                bar_size = max(8, min(25, 40 - group_count))
+            else:
+                bar_size = max(15, min(60, 120 - data_points * 5))
+            
+            # 차트 높이를 그룹 수에 따라 동적 조정
+            chart_height = 400 if group_count <= 5 else min(600, 400 + (group_count - 5) * 15)
             
             # 차트 속성 정의 - padding은 LayerChart에서 적용
             chart_props = {
-                "height": 400,  # 고정 높이
+                "height": chart_height,
                 "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             
@@ -767,17 +775,33 @@ if df is not None and not df.empty:
             if group_col_name and group_col_name in data.columns:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 축 범위 계산 - 양쪽 Y축의 최대값을 130%로 확장하여 레이블 여백 확보
+            # 축 범위 계산 - 데이터 양에 따른 동적 스케일링
             max_amount = data['송장금액_백만원'].max() if not data.empty else 100
             max_quantity = data['송장수량_천EA'].max() if not data.empty else 50
-            expanded_max_amount = max_amount * 1.3
-            expanded_max_quantity = max_quantity * 1.3
             
-            # Y축 범위가 너무 작으면 최소값 보장 (시각적 개선)
-            if expanded_max_amount < 100:
-                expanded_max_amount = 100
-            if expanded_max_quantity < 50:
-                expanded_max_quantity = 50
+            # 데이터 분포 분석
+            amount_75th = data['송장금액_백만원'].quantile(0.75) if not data.empty else max_amount * 0.75
+            quantity_75th = data['송장수량_천EA'].quantile(0.75) if not data.empty else max_quantity * 0.75
+            
+            # 동적 확장 비율 계산 (최대값과 75분위수의 차이에 따라 조정)
+            amount_ratio = (max_amount - amount_75th) / max_amount if max_amount > 0 else 0.5
+            quantity_ratio = (max_quantity - quantity_75th) / max_quantity if max_quantity > 0 else 0.5
+            
+            # 확장 비율을 1.2배에서 2.0배 사이로 동적 조정
+            amount_expansion = 1.2 + (amount_ratio * 0.8)
+            quantity_expansion = 1.2 + (quantity_ratio * 0.8)
+            
+            expanded_max_amount = max_amount * amount_expansion
+            expanded_max_quantity = max_quantity * quantity_expansion
+            
+            # 최소값 보장 - 더 큰 최소값으로 가독성 향상
+            min_amount_threshold = 200  # 200백만원
+            min_quantity_threshold = 100  # 100천EA
+            
+            if expanded_max_amount < min_amount_threshold:
+                expanded_max_amount = min_amount_threshold
+            if expanded_max_quantity < min_quantity_threshold:
+                expanded_max_quantity = min_quantity_threshold
             
             
             # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
@@ -796,7 +820,17 @@ if df is not None and not df.empty:
                            offset=5          # 축 자체를 차트에서 더 멀리 배치
                        ),
                        scale=alt.Scale(domain=[0, expanded_max_amount])),
-                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name and group_col_name in data.columns else alt.value('steelblue'),
+                color=alt.Color(
+                    f"{group_col_name}:N", 
+                    legend=alt.Legend(
+                        title=group_col_name,
+                        orient="right",
+                        columns=1 if group_count > 10 else 2,
+                        symbolLimit=20,
+                        labelLimit=200,
+                        titleLimit=200
+                    )
+                ) if group_col_name and group_col_name in data.columns else alt.value('steelblue'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
             
@@ -816,37 +850,56 @@ if df is not None and not df.empty:
                            offset=5          # 축 자체를 차트에서 더 멀리 배치
                        ),
                        scale=alt.Scale(domain=[0, expanded_max_quantity])),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red'),
+                color=alt.Color(
+                    f"{group_col_name}:N",
+                    legend=None  # 꺾은선 차트는 범례 숨김 (막대 차트와 동일한 색상이므로)
+                ) if group_col_name and group_col_name in data.columns else alt.value('red'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
             
-            # 막대 차트 데이터 레이블
-            bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', 
-                       axis=None,  # 레이블용이므로 축 숨김
-                       scale=alt.Scale(domain=[0, expanded_max_amount])),
-                text=alt.condition(
-                    alt.datum.송장금액_백만원 > 0,
-                    alt.Text('송장금액_백만원:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('black')
-            ).properties(**chart_props)
+            # 막대 차트 데이터 레이블 - 그룹 수에 따른 조건부 표시
+            if group_count <= 8:  # 그룹이 적을 때만 레이블 표시
+                bar_text = alt.Chart(data).mark_text(
+                    dy=-8, 
+                    fontSize=max(7, 11 - group_count), 
+                    fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,  # 레이블용이므로 축 숨김
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 > expanded_max_amount * 0.05,  # 최대값의 5% 이상일 때만 표시
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color(f"{group_col_name}:N", legend=None) if group_col_name and group_col_name in data.columns else alt.value('black')
+                ).properties(**chart_props)
+            else:
+                # 그룹이 많을 때는 레이블 숨김
+                bar_text = alt.Chart(data).mark_text().encode().properties(**chart_props)
             
-            # 꺾은선 차트 데이터 레이블  
-            line_text = alt.Chart(data).mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', 
-                       axis=None,  # 레이블용이므로 축 숨김
-                       scale=alt.Scale(domain=[0, expanded_max_quantity])),
-                text=alt.condition(
-                    alt.datum.송장수량_천EA > 0,
-                    alt.Text('송장수량_천EA:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red')
-            ).properties(**chart_props)
+            # 꺾은선 차트 데이터 레이블 - 그룹 수에 따른 조건부 표시
+            if group_count <= 8:  # 그룹이 적을 때만 레이블 표시
+                line_text = alt.Chart(data).mark_text(
+                    dy=-18, 
+                    fontSize=max(6, 10 - group_count), 
+                    fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_천EA:Q', 
+                           axis=None,  # 레이블용이므로 축 숨김
+                           scale=alt.Scale(domain=[0, expanded_max_quantity])),
+                    text=alt.condition(
+                        alt.datum.송장수량_천EA > expanded_max_quantity * 0.05,  # 최대값의 5% 이상일 때만 표시
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color(f"{group_col_name}:N", legend=None) if group_col_name and group_col_name in data.columns else alt.value('red')
+                ).properties(**chart_props)
+            else:
+                # 그룹이 많을 때는 레이블 숨김
+                line_text = alt.Chart(data).mark_text().encode().properties(**chart_props)
             
             # 완전한 이중축 차트 - 각 축이 독립적으로 표시
             combined_chart = alt.layer(

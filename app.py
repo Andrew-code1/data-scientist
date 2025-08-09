@@ -731,11 +731,10 @@ if df is not None and not df.empty:
             # 2개월이면 두껍게, 12개월이면 적당하게
             bar_size = max(15, min(60, 120 - data_points * 5))
             
-            # 차트 속성 정의
+            # 차트 속성 정의 - padding은 LayerChart에서 적용
             chart_props = {
                 "height": 400,  # 고정 높이
-                "width": max(400, data_points * 80),  # 최소 400px, 데이터 포인트당 80px
-                "padding": {"left": 60, "top": 20, "right": 60, "bottom": 40}  # 여백 추가로 축과 막대 분리
+                "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             
             # 툴팁 설정
@@ -816,7 +815,9 @@ if df is not None and not df.empty:
                 right_chart,  # 오른쪽 축만 표시되는 꺾은선차트  
                 bar_text,     # 막대차트 레이블
                 line_text     # 꺾은선차트 레이블
-            ).resolve_scale(y='independent')
+            ).resolve_scale(y='independent').properties(
+                padding={"left": 60, "top": 20, "right": 60, "bottom": 40}  # LayerChart 전체에 여백 적용
+            )
             
             return combined_chart.add_params(click)
 

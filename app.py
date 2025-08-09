@@ -707,7 +707,8 @@ if df is not None and not df.empty:
                 scale=alt.Scale(
                     type="time",
                     nice=False,
-                    domain=unique_months  # 도메인을 정확한 월들로 제한
+                    domain=unique_months,  # 도메인을 정확한 월들로 제한
+                    padding=0.1  # X축 양쪽에 10% 여백 추가
                 )
             )
         else:
@@ -717,12 +718,23 @@ if df is not None and not df.empty:
                 f"{time_name}:O", 
                 title=time_unit,
                 sort="ascending",
-                scale=alt.Scale(domain=unique_years)  # 도메인 명시적 지정
+                scale=alt.Scale(
+                    domain=unique_years,  # 도메인 명시적 지정
+                    padding=0.1  # X축 양쪽에 10% 여백 추가
+                )
             )
 
         # 복합 차트 생성 함수 (이중축)
         def create_combined_chart(data, group_col_name=None):
-            base_chart = alt.Chart(data)
+            # 데이터 포인트 수에 따른 동적 막대 두께 계산
+            data_points = len(data[time_name].unique()) if not data.empty else 1
+            # 2개월이면 두껍게, 12개월이면 적당하게
+            bar_size = max(15, min(60, 120 - data_points * 5))
+            
+            base_chart = alt.Chart(data).properties(
+                height=400,  # 고정 높이
+                width=max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
+            )
             
             # 툴팁 설정
             tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
@@ -734,7 +746,7 @@ if df is not None and not df.empty:
             expanded_max_amount = max_amount * 1.3
             
             # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
-            left_chart = base_chart.mark_bar(opacity=0.6).encode(
+            left_chart = base_chart.mark_bar(opacity=0.7, size=bar_size).encode(
                 x=x_encoding,
                 y=alt.Y('송장금액_백만원:Q', 
                        title='송장금액(백만원)', 

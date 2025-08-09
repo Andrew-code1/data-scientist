@@ -757,8 +757,9 @@ if df is not None and not df.empty:
                            grid=True,
                            labelColor='steelblue',
                            tickColor='steelblue',
-                           labelPadding=10,  # 레이블과 축 사이 여백
-                           titlePadding=15   # 축 제목과 축 사이 여백
+                           labelPadding=15,  # 레이블과 축 사이 여백 증가
+                           titlePadding=20,  # 축 제목과 축 사이 여백 증가
+                           offset=5          # 축 자체를 차트에서 더 멀리 배치
                        ),
                        scale=alt.Scale(domain=[0, expanded_max_amount])),
                 color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
@@ -776,8 +777,9 @@ if df is not None and not df.empty:
                            grid=False,
                            labelColor='red',
                            tickColor='red',
-                           labelPadding=10,  # 레이블과 축 사이 여백
-                           titlePadding=15   # 축 제목과 축 사이 여백
+                           labelPadding=15,  # 레이블과 축 사이 여백 증가
+                           titlePadding=20,  # 축 제목과 축 사이 여백 증가
+                           offset=5          # 축 자체를 차트에서 더 멀리 배치
                        )),
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
                 tooltip=tooltip_cols
@@ -816,7 +818,7 @@ if df is not None and not df.empty:
                 bar_text,     # 막대차트 레이블
                 line_text     # 꺾은선차트 레이블
             ).resolve_scale(y='independent').properties(
-                padding={"left": 60, "top": 20, "right": 60, "bottom": 40}  # LayerChart 전체에 여백 적용
+                padding={"left": 80, "top": 20, "right": 80, "bottom": 40}  # 좌우 여백을 더 늘려서 축과 차트 분리
             )
             
             return combined_chart.add_params(click)

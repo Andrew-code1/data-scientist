@@ -731,11 +731,12 @@ if df is not None and not df.empty:
             # 2개월이면 두껍게, 12개월이면 적당하게
             bar_size = max(15, min(60, 120 - data_points * 5))
             
-            base_chart = alt.Chart(data).properties(
-                height=400,  # 고정 높이
-                width=max(400, data_points * 80),  # 최소 400px, 데이터 포인트당 80px
-                padding={"left": 60, "top": 20, "right": 60, "bottom": 40}  # 여백 추가로 축과 막대 분리
-            )
+            # 차트 속성 정의
+            chart_props = {
+                "height": 400,  # 고정 높이
+                "width": max(400, data_points * 80),  # 최소 400px, 데이터 포인트당 80px
+                "padding": {"left": 60, "top": 20, "right": 60, "bottom": 40}  # 여백 추가로 축과 막대 분리
+            }
             
             # 툴팁 설정
             tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
@@ -747,7 +748,7 @@ if df is not None and not df.empty:
             expanded_max_amount = max_amount * 1.3
             
             # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
-            left_chart = base_chart.mark_bar(opacity=0.7, size=bar_size).encode(
+            left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
                 x=x_encoding,
                 y=alt.Y('송장금액_백만원:Q', 
                        title='송장금액(백만원)', 
@@ -763,24 +764,10 @@ if df is not None and not df.empty:
                        scale=alt.Scale(domain=[0, expanded_max_amount])),
                 color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
                 tooltip=tooltip_cols
-            )
-            
-            # 막대 차트 데이터 레이블
-            bar_text = base_chart.mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', 
-                       axis=None,  # 레이블용이므로 축 숨김
-                       scale=alt.Scale(domain=[0, expanded_max_amount])),
-                text=alt.condition(
-                    alt.datum.송장금액_백만원 > 0,
-                    alt.Text('송장금액_백만원:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
-            )
+            ).properties(**chart_props)
             
             # 오른쪽 차트 - 송장수량 꺾은선 차트 (오른쪽 축만 표시)
-            right_chart = base_chart.mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
+            right_chart = alt.Chart(data).mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
                 x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q', 
                        title='송장수량(천EA)', 
@@ -795,10 +782,24 @@ if df is not None and not df.empty:
                        )),
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
                 tooltip=tooltip_cols
-            )
+            ).properties(**chart_props)
             
-            # 꺾은선 차트 데이터 레이블
-            line_text = base_chart.mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
+            # 막대 차트 데이터 레이블
+            bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y('송장금액_백만원:Q', 
+                       axis=None,  # 레이블용이므로 축 숨김
+                       scale=alt.Scale(domain=[0, expanded_max_amount])),
+                text=alt.condition(
+                    alt.datum.송장금액_백만원 > 0,
+                    alt.Text('송장금액_백만원:Q', format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
+            ).properties(**chart_props)
+            
+            # 꺾은선 차트 데이터 레이블  
+            line_text = alt.Chart(data).mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q', axis=None),  # 레이블용이므로 축 숨김
                 text=alt.condition(
@@ -807,15 +808,17 @@ if df is not None and not df.empty:
                     alt.value('')
                 ),
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
-            )
+            ).properties(**chart_props)
             
             # 완전한 이중축 차트 - 각 축이 독립적으로 표시
-            return alt.layer(
+            combined_chart = alt.layer(
                 left_chart,   # 왼쪽 축만 표시되는 막대차트
                 right_chart,  # 오른쪽 축만 표시되는 꺾은선차트  
                 bar_text,     # 막대차트 레이블
                 line_text     # 꺾은선차트 레이블
-            ).resolve_scale(y='independent').add_params(click)
+            ).resolve_scale(y='independent')
+            
+            return combined_chart.add_params(click)
 
         if is_combined:
             # 복합 차트 처리

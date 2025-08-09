@@ -586,40 +586,6 @@ if df is not None and not df.empty:
         if "공급업체명" in time_df.columns:
             time_df["공급업체_차트"] = time_df["공급업체명"].astype(str)
             
-        # 디버깅: 복합차트용 컬럼 생성 상태 출력
-        if is_combined:
-            st.write("🔍 **복합차트 디버깅 정보:**")
-            st.write(f"- 선택된 그룹 옵션: `{group_option}`")
-            st.write(f"- 기본 그룹 컬럼: `{group_col}`")
-            available_chart_cols = [col for col in time_df.columns if col.endswith('_차트')]
-            if available_chart_cols:
-                st.write(f"- 생성된 차트 컬럼들: {', '.join(available_chart_cols)}")
-            else:
-                st.write("- 생성된 차트 컬럼: 없음")
-            st.write(f"- 전체 컬럼 수: {len(time_df.columns)}")
-            st.write(f"- 데이터 행 수: {len(time_df)}")
-            
-            # Y축 데이터 정보 추가
-            if not time_df.empty:
-                st.write(f"- 송장금액 범위: {time_df['송장금액_백만원'].min():.1f} ~ {time_df['송장금액_백만원'].max():.1f}")
-                st.write(f"- 송장수량 범위: {time_df['송장수량_천EA'].min():.1f} ~ {time_df['송장수량_천EA'].max():.1f}")
-                
-                # 그룹별 통계
-                if group_col and group_col in time_df.columns:
-                    unique_groups = time_df[group_col].nunique()
-                    st.write(f"- 그룹 수 ({group_col}): {unique_groups}")
-                    if unique_groups <= 10:
-                        group_stats = time_df.groupby(group_col).agg({
-                            '송장금액_백만원': 'sum',
-                            '송장수량_천EA': 'sum'
-                        }).round(1)
-                        st.write("- 그룹별 합계:")
-                        st.dataframe(group_stats, use_container_width=True)
-                
-                st.write("- 첫 번째 행 샘플:")
-                sample_cols = [time_name, group_col] + available_chart_cols + ["송장금액_백만원", "송장수량_천EA"]
-                sample_data = {col: str(val) for col, val in time_df.iloc[0].items() if col in sample_cols and col}
-                st.json(sample_data)
         
         # 추가 안전장치: 완전히 동일한 행이 있다면 제거 (GROUP BY가 제대로 작동하지 않은 경우 대비)
         if group_option == "전체":
@@ -801,9 +767,18 @@ if df is not None and not df.empty:
             if group_col_name and group_col_name in data.columns:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 축 범위 계산 - 송장금액 축의 최대값을 130%로 확장하여 레이블 여백 확보
+            # 축 범위 계산 - 양쪽 Y축의 최대값을 130%로 확장하여 레이블 여백 확보
             max_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            max_quantity = data['송장수량_천EA'].max() if not data.empty else 50
             expanded_max_amount = max_amount * 1.3
+            expanded_max_quantity = max_quantity * 1.3
+            
+            # Y축 범위가 너무 작으면 최소값 보장 (시각적 개선)
+            if expanded_max_amount < 100:
+                expanded_max_amount = 100
+            if expanded_max_quantity < 50:
+                expanded_max_quantity = 50
+            
             
             # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
             left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
@@ -839,7 +814,8 @@ if df is not None and not df.empty:
                            labelPadding=15,  # 레이블과 축 사이 여백 증가
                            titlePadding=20,  # 축 제목과 축 사이 여백 증가
                            offset=5          # 축 자체를 차트에서 더 멀리 배치
-                       )),
+                       ),
+                       scale=alt.Scale(domain=[0, expanded_max_quantity])),
                 color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
@@ -861,7 +837,9 @@ if df is not None and not df.empty:
             # 꺾은선 차트 데이터 레이블  
             line_text = alt.Chart(data).mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
                 x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', axis=None),  # 레이블용이므로 축 숨김
+                y=alt.Y('송장수량_천EA:Q', 
+                       axis=None,  # 레이블용이므로 축 숨김
+                       scale=alt.Scale(domain=[0, expanded_max_quantity])),
                 text=alt.condition(
                     alt.datum.송장수량_천EA > 0,
                     alt.Text('송장수량_천EA:Q', format='.0f'),
@@ -885,57 +863,35 @@ if df is not None and not df.empty:
         if is_combined:
             # 복합 차트 처리 - 차트용 컬럼명 매핑
             chart_group_col = group_col
-            st.write("🎯 **복합차트 그룹 컬럼 매핑:**")
             
             if group_option == "전체":
-                st.write("- 전체 분석: 그룹 컬럼 없음")
                 chart = create_combined_chart(time_df)
             elif group_option == "플랜트별":
                 chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
-                st.write(f"- 플랜트별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "업체별":
                 chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
-                st.write(f"- 업체별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "파트별":
                 chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
-                st.write(f"- 파트별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "카테고리(최종)별":
                 chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
-                st.write(f"- 카테고리(최종)별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "KPI용카테고리별":
                 chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
-                st.write(f"- KPI용카테고리별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "플랜트+업체별":
                 chart_group_col = "플랜트_업체"
-                st.write(f"- 플랜트+업체별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "파트+카테고리(최종)별":
                 chart_group_col = "파트_카테고리"
-                st.write(f"- 파트+카테고리(최종)별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "파트+KPI용카테고리별":
                 chart_group_col = "파트_KPI카테고리"
-                st.write(f"- 파트+KPI용카테고리별 → 사용할 컬럼: `{chart_group_col}`")
                 chart = create_combined_chart(time_df, chart_group_col)
             else:  # 기타 그룹별 분석 (fallback)
-                st.write(f"- 기타 그룹 ({group_option}) → 사용할 컬럼: `{group_col}`")
                 chart = create_combined_chart(time_df, group_col)
-                
-            # 최종 사용된 그룹 컬럼 확인
-            final_group_col = chart_group_col if group_option != "전체" else None
-            if final_group_col:
-                col_exists = final_group_col in time_df.columns
-                st.write(f"- 최종 사용 컬럼: `{final_group_col}` ({'✅존재' if col_exists else '❌없음'})")
-                if col_exists and not time_df.empty:
-                    unique_vals = time_df[final_group_col].nunique()
-                    st.write(f"- 고유값 수: {unique_vals}")
-            else:
-                st.write("- 최종 사용 컬럼: 없음 (전체 분석)")
         elif group_option == "전체":
             base = alt.Chart(time_df)
             line = base.mark_line(point=True).encode(

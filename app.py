@@ -572,6 +572,12 @@ if df is not None and not df.empty:
         
         time_df = time_df.sort_values(sort_columns)
         
+        # 차트용 문자열 컬럼 생성 (원본은 숫자로 유지하여 테이블 정렬에 영향 없음)
+        if "플랜트" in time_df.columns:
+            time_df["플랜트_차트"] = "플랜트" + time_df["플랜트"].astype(str)
+        if "구매그룹" in time_df.columns:
+            time_df["구매그룹_차트"] = "구매그룹" + time_df["구매그룹"].astype(str)
+        
         # 추가 안전장치: 완전히 동일한 행이 있다면 제거 (GROUP BY가 제대로 작동하지 않은 경우 대비)
         if group_option == "전체":
             # 전체 분석의 경우 같은 시간에 대해서는 1개 행만 있어야 함
@@ -582,6 +588,7 @@ if df is not None and not df.empty:
                 dedup_columns = [time_name, group_col]
                 time_df = time_df.drop_duplicates(subset=dedup_columns, keep='first')
         
+        # 조합 컬럼 생성
         if group_option == "플랜트+업체별":
             time_df["플랜트_업체"] = time_df["플랜트"].astype(str) + "_" + time_df["공급업체명"]
         elif group_option == "파트+카테고리(최종)별":
@@ -741,9 +748,14 @@ if df is not None and not df.empty:
                 "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             
+            # 그룹 컬럼 유효성 검사
+            if group_col_name and group_col_name not in data.columns:
+                # 컬럼이 없으면 그룹 없는 차트로 처리
+                group_col_name = None
+            
             # 툴팁 설정
             tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
-            if group_col_name:
+            if group_col_name and group_col_name in data.columns:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
             # 축 범위 계산 - 송장금액 축의 최대값을 130%로 확장하여 레이블 여백 확보
@@ -766,7 +778,7 @@ if df is not None and not df.empty:
                            offset=5          # 축 자체를 차트에서 더 멀리 배치
                        ),
                        scale=alt.Scale(domain=[0, expanded_max_amount])),
-                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
+                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name and group_col_name in data.columns else alt.value('steelblue'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
             
@@ -785,7 +797,7 @@ if df is not None and not df.empty:
                            titlePadding=20,  # 축 제목과 축 사이 여백 증가
                            offset=5          # 축 자체를 차트에서 더 멀리 배치
                        )),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
             
@@ -800,7 +812,7 @@ if df is not None and not df.empty:
                     alt.Text('송장금액_백만원:Q', format='.0f'),
                     alt.value('')
                 ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
+                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('black')
             ).properties(**chart_props)
             
             # 꺾은선 차트 데이터 레이블  
@@ -812,7 +824,7 @@ if df is not None and not df.empty:
                     alt.Text('송장수량_천EA:Q', format='.0f'),
                     alt.value('')
                 ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
+                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red')
             ).properties(**chart_props)
             
             # 완전한 이중축 차트 - 각 축이 독립적으로 표시
@@ -828,10 +840,17 @@ if df is not None and not df.empty:
             return combined_chart.add_params(click)
 
         if is_combined:
-            # 복합 차트 처리
+            # 복합 차트 처리 - 차트용 컬럼명 매핑
+            chart_group_col = group_col
             if group_option == "전체":
                 chart = create_combined_chart(time_df)
-            else:  # 전체가 아닌 모든 그룹별 분석 (플랜트별, 업체별, 파트별, 카테고리(최종)별, KPI용카테고리별, 플랜트+업체별, 파트+카테고리(최종)별, 파트+KPI용카테고리별)
+            elif group_option == "플랜트별":
+                chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
+                chart = create_combined_chart(time_df, chart_group_col)
+            elif group_option == "구매그룹별":
+                chart_group_col = "구매그룹_차트" if "구매그룹_차트" in time_df.columns else "구매그룹"
+                chart = create_combined_chart(time_df, chart_group_col)
+            else:  # 기타 모든 그룹별 분석
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
             base = alt.Chart(time_df)

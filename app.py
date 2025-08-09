@@ -831,9 +831,7 @@ if df is not None and not df.empty:
             # 복합 차트 처리
             if group_option == "전체":
                 chart = create_combined_chart(time_df)
-            elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
-                chart = create_combined_chart(time_df, group_col)
-            else:
+            else:  # 전체가 아닌 모든 그룹별 분석 (플랜트별, 업체별, 파트별, 카테고리(최종)별, KPI용카테고리별, 플랜트+업체별, 파트+카테고리(최종)별, 파트+KPI용카테고리별)
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
             base = alt.Chart(time_df)

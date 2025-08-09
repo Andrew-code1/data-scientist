@@ -201,6 +201,19 @@ def format_numeric_columns(df: pd.DataFrame, numeric_cols: list[str]) -> pd.Data
     return df_formatted
 
 
+def enhance_pattern(pattern: str) -> str:
+    """자재 검색 패턴 강화 함수"""
+    if "*" not in pattern:
+        if " " in pattern:
+            # 띄어쓰기가 있으면 각 단어에 와일드카드 적용
+            words = pattern.split()
+            pattern = "*" + "*".join(words) + "*"
+        else:
+            # 단일 단어도 양쪽에 와일드카드 추가
+            pattern = "*" + pattern + "*"
+    return pattern.replace("*", "%").replace("'", "''")
+
+
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
@@ -408,6 +421,43 @@ if df is not None and not df.empty:
         sel_parts = multiselect_with_toggle("파트", parts_all, "pt") if parts_all else []
         sel_categories = multiselect_with_toggle("카테고리(최종)", categories_all, "ct") if categories_all else []
         sel_kpi_categories = multiselect_with_toggle("KPI용카테고리", kpi_categories_all, "kc") if kpi_categories_all else []
+        
+        # 자재 검색 필터 추가
+        st.subheader("🔍 자재 검색")
+        col1, col2 = st.columns(2)
+        with col1:
+            material_name_filter = st.text_input(
+                "자재명 패턴", 
+                placeholder="예) *퍼퓸*1L*",
+                key="material_name_filter",
+                help="와일드카드 * 사용 가능"
+            )
+        with col2:
+            material_code_filter = st.text_input(
+                "자재코드 패턴", 
+                placeholder="예) *1234567*",
+                key="material_code_filter",
+                help="와일드카드 * 사용 가능"
+            )
+            
+        # 필터 관리 버튼들
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ 모든 필터 초기화", key="clear_all_filters"):
+                # 세션 상태 초기화
+                for key in list(st.session_state.keys()):
+                    if key.endswith("_ms") or key in ["material_name_filter", "material_code_filter"]:
+                        del st.session_state[key]
+                st.rerun()
+        
+        with col2:
+            if st.button("🔍 자재 검색 초기화", key="clear_material_filters"):
+                # 자재 검색 필터만 초기화
+                if "material_name_filter" in st.session_state:
+                    del st.session_state["material_name_filter"]
+                if "material_code_filter" in st.session_state:
+                    del st.session_state["material_code_filter"]
+                st.rerun()
 
     # 연월 필터링을 위한 SQL 조건 생성
     ym_conditions = []
@@ -452,10 +502,89 @@ if df is not None and not df.empty:
         clauses.append(f"\"카테고리(최종)\" IN ({sql_list_str(sel_categories)})")
     if kpi_categories_all and sel_kpi_categories:
         clauses.append(f"KPI용카테고리 IN ({sql_list_str(sel_kpi_categories)})")
+    
+    # 자재 검색 조건 추가 (전역 적용)
+    material_search_conditions = []
+    if material_name_filter and material_name_filter.strip():
+        enhanced_name_patt = enhance_pattern(material_name_filter.strip())
+        material_search_conditions.append(f"자재명 ILIKE '{enhanced_name_patt}'")
+    if material_code_filter and material_code_filter.strip():
+        enhanced_code_patt = enhance_pattern(material_code_filter.strip())
+        material_search_conditions.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+    
+    if material_search_conditions:
+        # 자재 검색 조건을 AND로 연결 (둘 다 입력된 경우)
+        material_clause = " AND ".join(material_search_conditions)
+        clauses.append(f"({material_clause})")
 
     where_sql = " WHERE " + " AND ".join(clauses)
 
     st.title("구매 데이터 추이 분석")
+    
+    # 활성화된 필터 조건 표시
+    active_filters = []
+    
+    # 기간 필터
+    if len(sel_yearmonths) < len(yearmonths_all):
+        period_text = f"{min(sel_yearmonths)}~{max(sel_yearmonths)}" if len(sel_yearmonths) > 1 else sel_yearmonths[0]
+        active_filters.append(f"📅 기간: {period_text}")
+    
+    # 기본 필터들
+    if sel_plants and len(sel_plants) < len(plants_all):
+        plant_text = ", ".join(map(str, sel_plants[:3]))
+        if len(sel_plants) > 3:
+            plant_text += f" 외 {len(sel_plants)-3}개"
+        active_filters.append(f"🏭 플랜트: {plant_text}")
+    
+    if sel_groups and len(sel_groups) < len(groups_all):
+        group_text = ", ".join(map(str, sel_groups[:3]))
+        if len(sel_groups) > 3:
+            group_text += f" 외 {len(sel_groups)-3}개"
+        active_filters.append(f"🔧 구매그룹: {group_text}")
+    
+    if sel_suppliers and len(sel_suppliers) < len(suppliers_all):
+        supplier_text = ", ".join([s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers[:2]])
+        if len(sel_suppliers) > 2:
+            supplier_text += f" 외 {len(sel_suppliers)-2}개"
+        active_filters.append(f"🏢 공급업체: {supplier_text}")
+    
+    # 새로운 필터들
+    if sel_parts and len(sel_parts) < len(parts_all):
+        parts_text = ", ".join(sel_parts[:3])
+        if len(sel_parts) > 3:
+            parts_text += f" 외 {len(sel_parts)-3}개"
+        active_filters.append(f"👥 파트: {parts_text}")
+    
+    if sel_categories and len(sel_categories) < len(categories_all):
+        cat_text = ", ".join(sel_categories[:3])
+        if len(sel_categories) > 3:
+            cat_text += f" 외 {len(sel_categories)-3}개"
+        active_filters.append(f"📂 카테고리: {cat_text}")
+    
+    if sel_kpi_categories and len(sel_kpi_categories) < len(kpi_categories_all):
+        kpi_text = ", ".join(sel_kpi_categories[:3])
+        if len(sel_kpi_categories) > 3:
+            kpi_text += f" 외 {len(sel_kpi_categories)-3}개"
+        active_filters.append(f"📊 KPI카테고리: {kpi_text}")
+    
+    # 자재 검색 필터
+    if material_name_filter and material_name_filter.strip():
+        active_filters.append(f"🔍 자재명: {material_name_filter}")
+    if material_code_filter and material_code_filter.strip():
+        active_filters.append(f"🔍 자재코드: {material_code_filter}")
+    
+    # 활성 필터 표시
+    if active_filters:
+        st.info(f"**활성 필터**: {' | '.join(active_filters)}")
+        if len(active_filters) > 1:
+            st.caption("💡 여러 필터가 동시에 적용되어 데이터가 교집합으로 필터링됩니다.")
+        
+        # 필터링된 데이터 요약 정보 추가
+        if material_name_filter or material_code_filter:
+            st.success("🎯 **자재 검색 필터가 전체 대시보드에 적용되었습니다!**")
+            st.caption("📊 구매 데이터 추이, Raw 데이터 조회, 업체별 구매 현황이 모두 검색된 자재로 필터링됩니다.")
+    else:
+        st.info("📋 **전체 데이터** 표시 중 (필터 없음)")
     
     # 차트 해석 도움말
     with st.expander("📊 차트 해석 가이드", expanded=False):

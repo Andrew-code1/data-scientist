@@ -733,7 +733,8 @@ if df is not None and not df.empty:
             
             base_chart = alt.Chart(data).properties(
                 height=400,  # 고정 높이
-                width=max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
+                width=max(400, data_points * 80),  # 최소 400px, 데이터 포인트당 80px
+                padding={"left": 60, "top": 20, "right": 60, "bottom": 40}  # 여백 추가로 축과 막대 분리
             )
             
             # 툴팁 설정
@@ -755,7 +756,9 @@ if df is not None and not df.empty:
                            titleColor='steelblue', 
                            grid=True,
                            labelColor='steelblue',
-                           tickColor='steelblue'
+                           tickColor='steelblue',
+                           labelPadding=10,  # 레이블과 축 사이 여백
+                           titlePadding=15   # 축 제목과 축 사이 여백
                        ),
                        scale=alt.Scale(domain=[0, expanded_max_amount])),
                 color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
@@ -786,7 +789,9 @@ if df is not None and not df.empty:
                            titleColor='red', 
                            grid=False,
                            labelColor='red',
-                           tickColor='red'
+                           tickColor='red',
+                           labelPadding=10,  # 레이블과 축 사이 여백
+                           titlePadding=15   # 축 제목과 축 사이 여백
                        )),
                 color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
                 tooltip=tooltip_cols
@@ -1157,8 +1162,13 @@ if df is not None and not df.empty:
                     if zero_quantities > len(raw_df) * 0.3:
                         st.warning(f"주의: 송장수량이 0인 데이터가 {zero_quantities}건 있습니다.")
                     
-                    # 기간별 요약 정보 먼저 표시
+                    # 전체 데이터 요약 정보 표시
+                    total_amount = raw_df['송장금액'].sum()
+                    total_quantity = raw_df['송장수량'].sum()
+                    total_materials = len(raw_df)
+                    
                     if len(query_yearmonths) > 1:
+                        # 특정 기간: 월별 누계 현황
                         summary_df = raw_df.groupby('마감월').agg({
                             '송장금액': 'sum',
                             '송장수량': 'sum',
@@ -1169,11 +1179,11 @@ if df is not None and not df.empty:
                         st.subheader("월별 누계 현황")
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.metric("총 송장금액", f"{summary_df['송장금액'].sum():,.0f}원")
+                            st.metric("총 송장금액", f"{total_amount:,.0f}원")
                         with col2:
-                            st.metric("총 송장수량", f"{summary_df['송장수량'].sum():,.0f}")
+                            st.metric("총 송장수량", f"{total_quantity:,.0f}")
                         with col3:
-                            st.metric("총 자재건수", f"{summary_df['자재건수'].sum():,.0f}건")
+                            st.metric("총 자재건수", f"{total_materials:,.0f}건")
                         
                         st.dataframe(
                             summary_df, 
@@ -1190,6 +1200,16 @@ if df is not None and not df.empty:
                                 )
                             }
                         )
+                    else:
+                        # 특정 시점: 데이터 요약
+                        st.subheader("데이터 요약")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("총 송장금액", f"{total_amount:,.0f}원")
+                        with col2:
+                            st.metric("총 송장수량", f"{total_quantity:,.0f}")
+                        with col3:
+                            st.metric("총 자재건수", f"{total_materials:,.0f}건")
                     
                     st.subheader("상세 Raw 데이터")
                     

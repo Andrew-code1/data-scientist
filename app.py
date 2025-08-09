@@ -701,14 +701,16 @@ if df is not None and not df.empty:
                     labelAngle=-45,
                     labelOverlap=False,
                     labelSeparation=15,
-                    values=unique_months  # 정확한 월 값들만 표시
+                    values=unique_months,  # 정확한 월 값들만 표시
+                    offset=10  # X축을 아래로 이동하여 Y축과 거리 확보
                 ),
                 sort="ascending",
                 scale=alt.Scale(
                     type="time",
                     nice=False,
                     domain=unique_months,  # 도메인을 정확한 월들로 제한
-                    padding=0.1  # X축 양쪽에 10% 여백 추가
+                    padding=0.2,  # X축 양쪽 여백을 20%로 증가
+                    range=[50, {"expr": "width-50"}]  # 실제 차트 영역을 왼쪽 50px, 오른쪽 50px 안쪽으로 제한
                 )
             )
         else:
@@ -717,10 +719,12 @@ if df is not None and not df.empty:
             x_encoding = alt.X(
                 f"{time_name}:O", 
                 title=time_unit,
+                axis=alt.Axis(offset=10),  # X축을 아래로 이동
                 sort="ascending",
                 scale=alt.Scale(
                     domain=unique_years,  # 도메인 명시적 지정
-                    padding=0.1  # X축 양쪽에 10% 여백 추가
+                    padding=0.2,  # X축 양쪽 여백을 20%로 증가
+                    range=[50, {"expr": "width-50"}]  # 실제 차트 영역을 왼쪽 50px, 오른쪽 50px 안쪽으로 제한
                 )
             )
 
@@ -818,7 +822,7 @@ if df is not None and not df.empty:
                 bar_text,     # 막대차트 레이블
                 line_text     # 꺾은선차트 레이블
             ).resolve_scale(y='independent').properties(
-                padding={"left": 80, "top": 20, "right": 80, "bottom": 40}  # 좌우 여백을 더 늘려서 축과 차트 분리
+                padding={"left": 100, "top": 20, "right": 100, "bottom": 50}  # 모든 여백을 크게 증가하여 축과 차트 완전 분리
             )
             
             return combined_chart.add_params(click)

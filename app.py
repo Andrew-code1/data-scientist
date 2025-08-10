@@ -773,7 +773,7 @@ if df is not None and not df.empty:
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
-                left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size).encode(
+                left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size, stroke='white', strokeWidth=1).encode(
                     x=x_encoding,
                     y=alt.Y('송장금액_백만원:Q', 
                            title='송장금액(백만원)', 
@@ -867,8 +867,29 @@ if df is not None and not df.empty:
             
             # **데이터 레이블 개선**
             if group_col_name:
-                # 누적 막대의 경우 각 세그먼트 중앙에 레이블 표시하지 않음 (복잡해짐)
-                # 대신 전체 누적값을 상단에 표시
+                # 누적 막대의 각 세그먼트에 개별 레이블 표시 (일정 크기 이상만)
+                segment_text = alt.Chart(data).mark_text(
+                    dy=0, fontSize=9, fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[0, expanded_max_amount]),
+                           stack='zero'),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 > (max_stacked_amount * 0.05),  # 전체 최대값의 5% 이상인 경우만 표시
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.condition(
+                        alt.datum.송장금액_백만원 > (max_stacked_amount * 0.1),  # 10% 이상이면 흰색, 이하면 검은색
+                        alt.value('white'),
+                        alt.value('black')
+                    ),
+                    order=alt.Order(f"{group_col_name}:N", sort='ascending')
+                ).properties(**chart_props)
+                
+                # 전체 누적값도 상단에 표시
                 stacked_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
                 stacked_totals[time_name] = pd.to_datetime(stacked_totals[time_name]) if time_unit == "월별" else stacked_totals[time_name]
                 
@@ -933,15 +954,27 @@ if df is not None and not df.empty:
                 ).properties(**chart_props)
             
             # **완전한 이중축 차트 - 각 축이 독립적으로 표시**
-            combined_chart = alt.layer(
-                left_chart,   # 누적 막대차트 (왼쪽 축)
-                right_chart,  # 꺾은선차트 (오른쪽 축, 확장된 범위)
-                bar_text,     # 막대차트 레이블
-                line_text     # 꺾은선차트 레이블
-            ).resolve_scale(y='independent').properties(
-                title=f"구매 데이터 추이 - {unit_text}",
-                padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
-            )
+            if group_col_name:
+                combined_chart = alt.layer(
+                    left_chart,    # 누적 막대차트 (왼쪽 축)
+                    right_chart,   # 꺾은선차트 (오른쪽 축, 확장된 범위)
+                    segment_text,  # 누적 막대 세그먼트 레이블
+                    bar_text,      # 막대차트 총합 레이블
+                    line_text      # 꺾은선차트 레이블
+                ).resolve_scale(y='independent').properties(
+                    title=f"구매 데이터 추이 - {unit_text}",
+                    padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
+                )
+            else:
+                combined_chart = alt.layer(
+                    left_chart,   # 일반 막대차트 (왼쪽 축)
+                    right_chart,  # 꺾은선차트 (오른쪽 축, 확장된 범위)
+                    bar_text,     # 막대차트 레이블
+                    line_text     # 꺾은선차트 레이블
+                ).resolve_scale(y='independent').properties(
+                    title=f"구매 데이터 추이 - {unit_text}",
+                    padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
+                )
             
             return combined_chart.add_params(click)
 
@@ -955,12 +988,12 @@ if df is not None and not df.empty:
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
             base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
+            line = base.mark_line(point=True, pointSize=100).encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 tooltip=["시간표시:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=10, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=11, fontWeight='bold', color='darkblue').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -978,7 +1011,7 @@ if df is not None and not df.empty:
                 color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
                 tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -997,7 +1030,7 @@ if df is not None and not df.empty:
                 color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
                 tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -1016,7 +1049,7 @@ if df is not None and not df.empty:
                 color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
                 tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -1035,7 +1068,7 @@ if df is not None and not df.empty:
                 color=alt.Color(f"{group_col}:N", title=group_col),
                 tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(

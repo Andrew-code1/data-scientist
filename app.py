@@ -634,51 +634,6 @@ if df is not None and not df.empty:
                     )
                 }
             )
-            
-            # 복합차트 생성 및 표시
-            st.subheader("송장금액 + 송장수량 복합차트")
-            if group_option == "전체":
-                chart = create_combined_chart(time_df, None, time_unit)
-            elif group_option == "플랜트별":
-                chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "업체별":
-                chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "파트별":
-                chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "카테고리(최종)별":
-                chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "KPI용카테고리별":
-                chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "플랜트+업체별":
-                chart = create_combined_chart(time_df, "플랜트_업체", time_unit)
-            elif group_option == "파트+카테고리(최종)별":
-                chart = create_combined_chart(time_df, "파트_카테고리", time_unit)
-            elif group_option == "파트+KPI용카테고리별":
-                chart = create_combined_chart(time_df, "파트_KPI카테고리", time_unit)
-            else:  # 기타 그룹별 분석 (fallback)
-                chart = create_combined_chart(time_df, group_col, time_unit)
-                
-            # 복합차트 표시
-            event = st.altair_chart(chart, use_container_width=True, key="combined_chart")
-            
-            # 클릭 이벤트 처리
-            selected_data = None
-            try:
-                if (event is not None and 
-                    hasattr(event, 'selection') and 
-                    event.selection is not None and 
-                    isinstance(event.selection, dict) and
-                    "point_select" in event.selection):
-                    selected_data = event.selection["point_select"]
-                    if selected_data:
-                        st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
-            except Exception:
-                pass
         elif group_option == "전체":
             display_cols = ["시간표시", metric_name]
             st.dataframe(
@@ -980,7 +935,52 @@ if df is not None and not df.empty:
                     text=f"차트 생성 실패: {str(e)}", fontSize=12, color='red'
                 ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
 
-        if not is_combined:
+        # 복합차트 처리
+        if is_combined:
+            st.subheader("송장금액 + 송장수량 복합차트")
+            if group_option == "전체":
+                chart = create_combined_chart(time_df, None, time_unit)
+            elif group_option == "플랜트별":
+                chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "업체별":
+                chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "파트별":
+                chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "카테고리(최종)별":
+                chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "KPI용카테고리별":
+                chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "플랜트+업체별":
+                chart = create_combined_chart(time_df, "플랜트_업체", time_unit)
+            elif group_option == "파트+카테고리(최종)별":
+                chart = create_combined_chart(time_df, "파트_카테고리", time_unit)
+            elif group_option == "파트+KPI용카테고리별":
+                chart = create_combined_chart(time_df, "파트_KPI카테고리", time_unit)
+            else:  # 기타 그룹별 분석 (fallback)
+                chart = create_combined_chart(time_df, group_col, time_unit)
+                
+            # 복합차트 표시
+            event = st.altair_chart(chart, use_container_width=True, key="combined_chart")
+            
+            # 클릭 이벤트 처리
+            selected_data = None
+            try:
+                if (event is not None and 
+                    hasattr(event, 'selection') and 
+                    event.selection is not None and 
+                    isinstance(event.selection, dict) and
+                    "point_select" in event.selection):
+                    selected_data = event.selection["point_select"]
+                    if selected_data:
+                        st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
+            except Exception:
+                pass
+        elif not is_combined:
             # 일반 차트 생성 (복합차트가 아닐 때만)
             if group_option == "전체":
                 base = alt.Chart(time_df)

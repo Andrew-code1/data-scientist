@@ -867,6 +867,10 @@ if df is not None and not df.empty:
             
             # **데이터 레이블 개선**
             if group_col_name:
+                # 임계값 계산
+                min_display_threshold = max_stacked_amount * 0.05  # 5% 이상만 표시
+                color_threshold = max_stacked_amount * 0.1  # 10% 이상은 흰색
+                
                 # 누적 막대의 각 세그먼트에 개별 레이블 표시 (일정 크기 이상만)
                 segment_text = alt.Chart(data).mark_text(
                     dy=0, fontSize=9, fontWeight='bold'
@@ -877,12 +881,12 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[0, expanded_max_amount]),
                            stack='zero'),
                     text=alt.condition(
-                        alt.datum.송장금액_백만원 > (max_stacked_amount * 0.05),  # 전체 최대값의 5% 이상인 경우만 표시
+                        alt.datum.송장금액_백만원 > min_display_threshold,  # 전체 최대값의 5% 이상인 경우만 표시
                         alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
                     ),
                     color=alt.condition(
-                        alt.datum.송장금액_백만원 > (max_stacked_amount * 0.1),  # 10% 이상이면 흰색, 이하면 검은색
+                        alt.datum.송장금액_백만원 > color_threshold,  # 10% 이상이면 흰색, 이하면 검은색
                         alt.value('white'),
                         alt.value('black')
                     ),
@@ -988,7 +992,7 @@ if df is not None and not df.empty:
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
             base = alt.Chart(time_df)
-            line = base.mark_line(point=True, pointSize=100).encode(
+            line = base.mark_line(point=alt.OverlayMarkDef(size=100)).encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 tooltip=["시간표시:N", f"{metric_name}:Q"]

@@ -790,7 +790,7 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[0, expanded_max_amount]),
                            stack='zero'),  # **누적 설정**
                     color=alt.Color(f"{group_col_name}:N", 
-                                   legend=alt.Legend(title=group_col_name, orient='top-right')),
+                                   legend=alt.Legend(title=group_col_name, orient='right')),
                     tooltip=tooltip_cols,
                     order=alt.Order(f"{group_col_name}:N", sort='ascending')  # 누적 순서 일관성
                 ).properties(**chart_props)

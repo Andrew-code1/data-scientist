@@ -773,7 +773,7 @@ if df is not None and not df.empty:
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
-                left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size, stroke='white', strokeWidth=1).encode(
+                left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size).encode(
                     x=x_encoding,
                     y=alt.Y('송장금액_백만원:Q', 
                            title='송장금액(백만원)', 
@@ -867,13 +867,9 @@ if df is not None and not df.empty:
             
             # **데이터 레이블 개선**
             if group_col_name:
-                # 임계값 계산
-                min_display_threshold = max_stacked_amount * 0.05  # 5% 이상만 표시
-                color_threshold = max_stacked_amount * 0.1  # 10% 이상은 흰색
-                
-                # 누적 막대의 각 세그먼트에 개별 레이블 표시 (일정 크기 이상만)
+                # 누적 막대의 각 세그먼트에 레이블 표시 (간단한 조건으로)
                 segment_text = alt.Chart(data).mark_text(
-                    dy=0, fontSize=9, fontWeight='bold'
+                    dy=0, fontSize=9, fontWeight='bold', color='white'
                 ).encode(
                     x=x_encoding,
                     y=alt.Y('송장금액_백만원:Q', 
@@ -881,14 +877,9 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[0, expanded_max_amount]),
                            stack='zero'),
                     text=alt.condition(
-                        alt.datum.송장금액_백만원 > min_display_threshold,  # 전체 최대값의 5% 이상인 경우만 표시
+                        alt.datum.송장금액_백만원 >= 10,  # 10 이상인 경우만 표시 (간단한 조건)
                         alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
-                    ),
-                    color=alt.condition(
-                        alt.datum.송장금액_백만원 > color_threshold,  # 10% 이상이면 흰색, 이하면 검은색
-                        alt.value('white'),
-                        alt.value('black')
                     ),
                     order=alt.Order(f"{group_col_name}:N", sort='ascending')
                 ).properties(**chart_props)

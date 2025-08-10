@@ -743,179 +743,160 @@ if df is not None and not df.empty:
                 )
             )
 
-        # 개선된 복합 차트 생성 함수 (이중축) - 다중 필터 최적화
+        # 복합 차트 생성 함수 (이중축) - 안정화 버전
         def create_combined_chart(data, group_col_name=None):
             # 빈 데이터 체크
             if data.empty:
-                return alt.Chart(pd.DataFrame({'message': ['데이터가 없습니다']})).mark_text(
-                    text="선택한 조건에 맞는 데이터가 없습니다.", 
-                    fontSize=16, color='gray'
-                ).encode().properties(width=600, height=300)
+                return alt.Chart(pd.DataFrame({'x': [0], 'y': [0]})).mark_text(
+                    text="데이터가 없습니다", fontSize=16, color='gray'
+                ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
             
             # 기본 설정
-            data_points = len(data[time_name].unique())
-            has_groups = group_col_name and group_col_name in data.columns
+            data_points = len(data[time_name].unique()) if not data.empty else 1
             
-            # 그룹 수 체크 및 제한
-            if has_groups:
+            # 그룹 수 체크 및 제한 (상위 15개만)
+            MAX_GROUPS = 15
+            if group_col_name and group_col_name in data.columns:
                 original_group_count = len(data[group_col_name].unique())
                 
-                # 그룹 수가 많으면 상위 15개로 제한
-                MAX_GROUPS = 15
                 if original_group_count > MAX_GROUPS:
-                    # 송장금액 기준 상위 15개 그룹 선별
+                    # 송장금액 기준 상위 15개 그룹만 선별
                     top_groups = (data.groupby(group_col_name)['송장금액_백만원']
                                     .sum().nlargest(MAX_GROUPS).index.tolist())
                     data = data[data[group_col_name].isin(top_groups)].copy()
                     
-                    # 사용자에게 알림
-                    st.warning(f"⚠️ 선택된 {group_col_name} 항목이 {original_group_count}개로 많아 "
+                    st.warning(f"⚠️ 선택한 {group_col_name} 항목이 {original_group_count}개로 많아 "
                              f"송장금액 상위 {MAX_GROUPS}개만 표시합니다.")
                 
                 group_count = len(data[group_col_name].unique())
             else:
                 group_count = 1
-            
+                
             # 동적 차트 크기 계산
-            chart_height = min(800, max(400, 350 + group_count * 25))
-            chart_width = max(600, data_points * 100 + group_count * 10)
-            bar_size = max(8, min(50, 60 - group_count))
+            bar_size = max(8, min(40, 50 - group_count))
+            chart_height = min(600, max(400, 380 + group_count * 20))
+            chart_width = max(500, data_points * 80 + group_count * 5)
             
-            # 확장 색상 팔레트 (20색 지원)
-            extended_colors = [
-                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-                '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
-                '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5'
-            ]
+            chart_props = {
+                "height": chart_height,
+                "width": chart_width
+            }
             
-            # 축 범위 계산 - 안전한 처리
-            try:
-                max_amount = data['송장금액_백만원'].max()
-                max_quantity = data['송장수량_천EA'].max()
-                
-                # NaN 또는 0 처리
-                max_amount = max(max_amount if not pd.isna(max_amount) else 0, 1)
-                max_quantity = max(max_quantity if not pd.isna(max_quantity) else 0, 1)
-                
-                # 1.3배 확장
-                expanded_max_amount = max_amount * 1.3
-                expanded_max_quantity = max_quantity * 1.3
-                
-            except Exception:
-                expanded_max_amount = 100
-                expanded_max_quantity = 50
+            # 그룹 컬럼 유효성 검사
+            if group_col_name and group_col_name not in data.columns:
+                group_col_name = None
             
             # 툴팁 설정
-            tooltip_cols = [f"{time_name}:T", "송장금액_백만원:Q", "송장수량_천EA:Q"]
-            if has_groups:
+            tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
+            if group_col_name and group_col_name in data.columns:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # X축 인코딩
-            base_x = alt.X(f'{time_name}:T', title='기간', 
-                          axis=alt.Axis(labelAngle=-45, format='%Y-%m'))
+            # 축 범위 계산
+            max_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            max_quantity = data['송장수량_천EA'].max() if not data.empty else 50
             
-            # 막대 차트 (송장금액)
-            bar_chart = alt.Chart(data).mark_bar(
-                opacity=0.7, size=bar_size, stroke='white', strokeWidth=1
-            ).encode(
-                x=base_x,
+            # 안전한 처리
+            if pd.isna(max_amount) or max_amount <= 0:
+                max_amount = 100
+            if pd.isna(max_quantity) or max_quantity <= 0:
+                max_quantity = 50
+                
+            expanded_max_amount = max_amount * 1.3
+            expanded_max_quantity = max_quantity * 1.3
+            
+            # 막대 차트 (왼쪽 Y축)
+            left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
+                x=x_encoding,
                 y=alt.Y('송장금액_백만원:Q', 
-                       title='송장금액 (백만원)',
-                       axis=alt.Axis(orient='left', titleColor='#1f77b4', 
-                                   labelColor='#1f77b4', tickColor='#1f77b4',
-                                   grid=True, gridOpacity=0.3),
-                       scale=alt.Scale(domain=[0, expanded_max_amount], nice=True)),
+                       title='송장금액(백만원)', 
+                       axis=alt.Axis(
+                           orient='left', 
+                           titleColor='steelblue', 
+                           grid=True,
+                           labelColor='steelblue',
+                           tickColor='steelblue'
+                       ),
+                       scale=alt.Scale(domain=[0, expanded_max_amount])),
                 color=alt.Color(
-                    f"{group_col_name}:N",
-                    scale=alt.Scale(range=extended_colors),
+                    f"{group_col_name}:N", 
                     legend=alt.Legend(
                         title=group_col_name,
                         orient="top",
-                        columns=min(5, max(2, group_count // 3)),
-                        symbolLimit=MAX_GROUPS,
-                        labelLimit=100,
-                        titleLimit=100
+                        columns=min(4, max(1, group_count // 4)),
+                        symbolLimit=MAX_GROUPS
                     )
-                ) if has_groups else alt.value('#1f77b4'),
+                ) if group_col_name and group_col_name in data.columns else alt.value('steelblue'),
                 tooltip=tooltip_cols
-            ).properties(width=chart_width, height=chart_height)
+            ).properties(**chart_props)
             
-            # 꺾은선 차트 (송장수량)
-            line_chart = alt.Chart(data).mark_line(
-                point=alt.OverlayMarkDef(size=50, filled=True),
-                strokeWidth=2, opacity=0.9
+            # 꺾은선 차트 (오른쪽 Y축)
+            right_chart = alt.Chart(data).mark_line(
+                point=alt.OverlayMarkDef(size=60), strokeWidth=3
             ).encode(
-                x=base_x,
+                x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q', 
-                       title='송장수량 (천EA)',
-                       axis=alt.Axis(orient='right', titleColor='#ff7f0e',
-                                   labelColor='#ff7f0e', tickColor='#ff7f0e',
-                                   grid=False),
-                       scale=alt.Scale(domain=[0, expanded_max_quantity], nice=True)),
+                       title='송장수량(천EA)', 
+                       axis=alt.Axis(
+                           orient='right', 
+                           titleColor='red', 
+                           grid=False,
+                           labelColor='red',
+                           tickColor='red'
+                       ),
+                       scale=alt.Scale(domain=[0, expanded_max_quantity])),
                 color=alt.Color(
-                    f"{group_col_name}:N",
-                    scale=alt.Scale(range=[c + '80' for c in extended_colors]),  # 투명도 추가
+                    f"{group_col_name}:N", 
                     legend=None
-                ) if has_groups else alt.value('#ff7f0e'),
+                ) if group_col_name and group_col_name in data.columns else alt.value('red'),
                 tooltip=tooltip_cols
-            ).properties(width=chart_width, height=chart_height)
+            ).properties(**chart_props)
             
-            # 레이블 표시 조건 (그룹 ≤ 8개, 데이터포인트 ≤ 10개)
-            show_labels = group_count <= 8 and data_points <= 10
+            # 레이블 표시 (조건부)
+            show_labels = group_count <= 10 and data_points <= 12
             
             if show_labels:
                 # 막대 차트 레이블
-                bar_labels = alt.Chart(data).mark_text(
-                    dy=-8, fontSize=max(6, 10 - group_count), 
-                    fontWeight='bold', color='#1f77b4'
+                bar_text = alt.Chart(data).mark_text(
+                    dy=-8, fontSize=max(7, 10 - group_count), fontWeight='bold'
                 ).encode(
-                    x=base_x,
+                    x=x_encoding,
                     y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
-                        alt.datum.송장금액_백만원 > expanded_max_amount * 0.05,
+                        alt.datum.송장금액_백만원 > expanded_max_amount * 0.03,
                         alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
-                    )
-                ).properties(width=chart_width, height=chart_height)
+                    ),
+                    color=alt.Color(f"{group_col_name}:N", legend=None) if group_col_name and group_col_name in data.columns else alt.value('black')
+                ).properties(**chart_props)
                 
                 # 꺾은선 레이블
-                line_labels = alt.Chart(data).mark_text(
-                    dy=-15, fontSize=max(6, 9 - group_count),
-                    fontWeight='bold', color='#ff7f0e'
+                line_text = alt.Chart(data).mark_text(
+                    dy=-18, fontSize=max(6, 9 - group_count), fontWeight='bold'
                 ).encode(
-                    x=base_x,
+                    x=x_encoding,
                     y=alt.Y('송장수량_천EA:Q', 
+                           axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_quantity])),
                     text=alt.condition(
-                        alt.datum.송장수량_천EA > expanded_max_quantity * 0.05,
+                        alt.datum.송장수량_천EA > expanded_max_quantity * 0.03,
                         alt.Text('송장수량_천EA:Q', format='.0f'),
                         alt.value('')
-                    )
-                ).properties(width=chart_width, height=chart_height)
+                    ),
+                    color=alt.Color(f"{group_col_name}:N", legend=None) if group_col_name and group_col_name in data.columns else alt.value('red')
+                ).properties(**chart_props)
                 
-                # 레이블이 포함된 복합 차트
-                combined_chart = alt.layer(
-                    bar_chart, line_chart, bar_labels, line_labels
-                )
+                # 레이블 포함 차트
+                combined_chart = alt.layer(left_chart, right_chart, bar_text, line_text)
             else:
-                # 레이블 없는 복합 차트
-                combined_chart = alt.layer(bar_chart, line_chart)
+                # 기본 차트
+                combined_chart = alt.layer(left_chart, right_chart)
             
-            # 최종 차트 설정
-            final_chart = combined_chart.resolve_scale(
-                y='independent'
-            ).properties(
-                title=alt.TitleParams(
-                    text=[
-                        "송장금액 vs 송장수량 복합 차트",
-                        f"({group_count}개 그룹, {data_points}개 기간)" if has_groups else f"({data_points}개 기간)"
-                    ],
-                    fontSize=14,
-                    anchor='start'
-                ),
-                padding={"left": 50, "top": 50, "right": 50, "bottom": 50}
+            # 최종 차트
+            final_chart = combined_chart.resolve_scale(y='independent').properties(
+                title=f"송장금액 vs 송장수량 복합차트 ({group_count}개 그룹)" if group_count > 1 else "송장금액 vs 송장수량 복합차트",
+                padding={"left": 80, "top": 40, "right": 80, "bottom": 40}
             )
             
             return final_chart.add_params(click)

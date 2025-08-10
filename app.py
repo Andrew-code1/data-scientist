@@ -585,7 +585,6 @@ if df is not None and not df.empty:
             time_df["KPI카테고리_차트"] = time_df["KPI용카테고리"].astype(str)
         if "공급업체명" in time_df.columns:
             time_df["공급업체_차트"] = time_df["공급업체명"].astype(str)
-            
         
         # 추가 안전장치: 완전히 동일한 행이 있다면 제거 (GROUP BY가 제대로 작동하지 않은 경우 대비)
         if group_option == "전체":
@@ -748,20 +747,12 @@ if df is not None and not df.empty:
         def create_combined_chart(data, group_col_name=None):
             # 데이터 포인트 수에 따른 동적 막대 두께 계산
             data_points = len(data[time_name].unique()) if not data.empty else 1
-            group_count = len(data[group_col_name].unique()) if group_col_name and group_col_name in data.columns else 1
-            
-            # 그룹 수가 많을 때 막대 크기 조정
-            if group_count > 10:
-                bar_size = max(8, min(25, 40 - group_count))
-            else:
-                bar_size = max(15, min(60, 120 - data_points * 5))
-            
-            # 차트 높이를 그룹 수에 따라 동적 조정
-            chart_height = 400 if group_count <= 5 else min(600, 400 + (group_count - 5) * 15)
+            # 2개월이면 두껍게, 12개월이면 적당하게
+            bar_size = max(15, min(60, 120 - data_points * 5))
             
             # 차트 속성 정의 - padding은 LayerChart에서 적용
             chart_props = {
-                "height": chart_height,
+                "height": 400,  # 고정 높이
                 "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             
@@ -775,151 +766,90 @@ if df is not None and not df.empty:
             if group_col_name and group_col_name in data.columns:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 축 범위 계산 - 개선된 안전한 스케일링
-            try:
-                max_amount = data['송장금액_백만원'].max() if not data.empty else 100
-                max_quantity = data['송장수량_천EA'].max() if not data.empty else 50
-                
-                # NaN 값 체크 및 처리
-                if pd.isna(max_amount) or max_amount <= 0:
-                    max_amount = 100
-                if pd.isna(max_quantity) or max_quantity <= 0:
-                    max_quantity = 50
-                
-                # 간단하고 안전한 스케일링 (1.3배)
-                expanded_max_amount = max_amount * 1.3
-                expanded_max_quantity = max_quantity * 1.3
-                
-                # 최소값 보장
-                expanded_max_amount = max(expanded_max_amount, 100)
-                expanded_max_quantity = max(expanded_max_quantity, 50)
-                
-            except Exception as e:
-                st.error(f"데이터 스케일링 오류: {e}")
-                expanded_max_amount = 100
-                expanded_max_quantity = 50
+            # 축 범위 계산 - 송장금액 축의 최대값을 130%로 확장하여 레이블 여백 확보
+            max_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            expanded_max_amount = max_amount * 1.3
             
-            
-            # 막대 차트 (왼쪽 Y축) - 송장금액
-            left_chart = alt.Chart(data).mark_bar(
-                opacity=0.7, 
-                size=bar_size,
-                stroke='white',
-                strokeWidth=1
-            ).encode(
+            # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
+            left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
                 x=x_encoding,
                 y=alt.Y('송장금액_백만원:Q', 
-                       title='송장금액 (백만원)', 
+                       title='송장금액(백만원)', 
                        axis=alt.Axis(
                            orient='left', 
-                           titleColor='#1f77b4', 
-                           labelColor='#1f77b4',
-                           tickColor='#1f77b4',
+                           titleColor='steelblue', 
                            grid=True,
-                           gridOpacity=0.3
+                           labelColor='steelblue',
+                           tickColor='steelblue',
+                           labelPadding=15,  # 레이블과 축 사이 여백 증가
+                           titlePadding=20,  # 축 제목과 축 사이 여백 증가
+                           offset=5          # 축 자체를 차트에서 더 멀리 배치
                        ),
-                       scale=alt.Scale(domain=[0, expanded_max_amount], nice=True)),
-                color=alt.Color(
-                    f"{group_col_name}:N",
-                    scale=alt.Scale(scheme='category10'),
-                    legend=alt.Legend(
-                        title=group_col_name,
-                        orient="top-right",
-                        columns=min(3, max(1, group_count // 5)),
-                        symbolLimit=15,
-                        labelLimit=100
-                    )
-                ) if group_col_name and group_col_name in data.columns else alt.value('#1f77b4'),
+                       scale=alt.Scale(domain=[0, expanded_max_amount])),
+                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name and group_col_name in data.columns else alt.value('steelblue'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
             
-            # 꺾은선 차트 (오른쪽 Y축) - 송장수량  
-            right_chart = alt.Chart(data).mark_line(
-                point=alt.OverlayMarkDef(size=60, filled=True, strokeWidth=2),
-                strokeWidth=3,
-                opacity=0.8
-            ).encode(
+            # 오른쪽 차트 - 송장수량 꺾은선 차트 (오른쪽 축만 표시)
+            right_chart = alt.Chart(data).mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
                 x=x_encoding,
                 y=alt.Y('송장수량_천EA:Q', 
-                       title='송장수량 (천EA)',
+                       title='송장수량(천EA)', 
                        axis=alt.Axis(
-                           orient='right',
-                           titleColor='#ff7f0e', 
-                           labelColor='#ff7f0e',
-                           tickColor='#ff7f0e',
-                           grid=False
-                       ),
-                       scale=alt.Scale(domain=[0, expanded_max_quantity], nice=True)),
-                color=alt.Color(
-                    f"{group_col_name}:N",
-                    scale=alt.Scale(scheme='set2'),
-                    legend=None
-                ) if group_col_name and group_col_name in data.columns else alt.value('#ff7f0e'),
+                           orient='right', 
+                           titleColor='red', 
+                           grid=False,
+                           labelColor='red',
+                           tickColor='red',
+                           labelPadding=15,  # 레이블과 축 사이 여백 증가
+                           titlePadding=20,  # 축 제목과 축 사이 여백 증가
+                           offset=5          # 축 자체를 차트에서 더 멀리 배치
+                       )),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red'),
                 tooltip=tooltip_cols
             ).properties(**chart_props)
             
-            # 데이터 레이블 (조건부 표시)
-            show_labels = group_count <= 5 and data_points <= 12
+            # 막대 차트 데이터 레이블
+            bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y('송장금액_백만원:Q', 
+                       axis=None,  # 레이블용이므로 축 숨김
+                       scale=alt.Scale(domain=[0, expanded_max_amount])),
+                text=alt.condition(
+                    alt.datum.송장금액_백만원 > 0,
+                    alt.Text('송장금액_백만원:Q', format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('black')
+            ).properties(**chart_props)
             
-            if show_labels:
-                # 막대 차트 레이블
-                bar_text = alt.Chart(data).mark_text(
-                    dy=-10, fontSize=9, fontWeight='bold', color='#1f77b4'
-                ).encode(
-                    x=x_encoding,
-                    y=alt.Y('송장금액_백만원:Q', scale=alt.Scale(domain=[0, expanded_max_amount])),
-                    text=alt.condition(
-                        alt.datum.송장금액_백만원 > expanded_max_amount * 0.03,
-                        alt.Text('송장금액_백만원:Q', format='.0f'),
-                        alt.value('')
-                    )
-                ).properties(**chart_props)
-                
-                # 꺾은선 차트 레이블  
-                line_text = alt.Chart(data).mark_text(
-                    dy=-20, fontSize=8, fontWeight='bold', color='#ff7f0e'
-                ).encode(
-                    x=x_encoding,
-                    y=alt.Y('송장수량_천EA:Q', scale=alt.Scale(domain=[0, expanded_max_quantity])),
-                    text=alt.condition(
-                        alt.datum.송장수량_천EA > expanded_max_quantity * 0.03,
-                        alt.Text('송장수량_천EA:Q', format='.0f'),
-                        alt.value('')
-                    )
-                ).properties(**chart_props)
-                
-                # 레이블이 있는 복합 차트
-                combined_chart = alt.layer(
-                    left_chart, right_chart, bar_text, line_text
-                ).resolve_scale(
-                    y='independent'
-                ).properties(
-                    title=alt.TitleParams(
-                        text="송장금액 vs 송장수량 복합 차트",
-                        fontSize=16,
-                        anchor='start'
-                    )
-                )
-            else:
-                # 레이블 없는 복합 차트
-                combined_chart = alt.layer(
-                    left_chart, right_chart
-                ).resolve_scale(
-                    y='independent'
-                ).properties(
-                    title=alt.TitleParams(
-                        text="송장금액 vs 송장수량 복합 차트",
-                        fontSize=16,
-                        anchor='start'
-                    )
-                )
+            # 꺾은선 차트 데이터 레이블  
+            line_text = alt.Chart(data).mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y('송장수량_천EA:Q', axis=None),  # 레이블용이므로 축 숨김
+                text=alt.condition(
+                    alt.datum.송장수량_천EA > 0,
+                    alt.Text('송장수량_천EA:Q', format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color(f"{group_col_name}:N") if group_col_name and group_col_name in data.columns else alt.value('red')
+            ).properties(**chart_props)
+            
+            # 완전한 이중축 차트 - 각 축이 독립적으로 표시
+            combined_chart = alt.layer(
+                left_chart,   # 왼쪽 축만 표시되는 막대차트
+                right_chart,  # 오른쪽 축만 표시되는 꺾은선차트  
+                bar_text,     # 막대차트 레이블
+                line_text     # 꺾은선차트 레이블
+            ).resolve_scale(y='independent').properties(
+                padding={"left": 100, "top": 20, "right": 100, "bottom": 50}  # 모든 여백을 크게 증가하여 축과 차트 완전 분리
+            )
             
             return combined_chart.add_params(click)
 
         if is_combined:
             # 복합 차트 처리 - 차트용 컬럼명 매핑
             chart_group_col = group_col
-            
             if group_option == "전체":
                 chart = create_combined_chart(time_df)
             elif group_option == "플랜트별":
@@ -938,14 +868,11 @@ if df is not None and not df.empty:
                 chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
                 chart = create_combined_chart(time_df, chart_group_col)
             elif group_option == "플랜트+업체별":
-                chart_group_col = "플랜트_업체"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, "플랜트_업체")
             elif group_option == "파트+카테고리(최종)별":
-                chart_group_col = "파트_카테고리"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, "파트_카테고리")
             elif group_option == "파트+KPI용카테고리별":
-                chart_group_col = "파트_KPI카테고리"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, "파트_KPI카테고리")
             else:  # 기타 그룹별 분석 (fallback)
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":

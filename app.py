@@ -755,20 +755,38 @@ if df is not None and not df.empty:
                 # 전체 데이터인 경우
                 max_stacked_amount = data['송장금액_백만원'].max() if not data.empty else 100
             
-            # 송장수량 범위 계산 (꺾은선을 상단에 배치하기 위해 범위 확장)
+            # 송장수량 범위 계산 (꺾은선을 누적막대 상단에 배치)
             non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
             if not non_zero_quantities.empty:
                 max_quantity = non_zero_quantities.max()
-                min_quantity = 0  # 최소값은 0으로 고정
-                # **심미적 개선: 꺾은선이 상단에 보이도록 Y축 범위를 2.5배로 확장**
-                expanded_max_quantity = max_quantity * 2.5
+                # 누적막대 최대값의 120% 지점을 꺾은선 시작점으로 설정
+                line_start_point = max_stacked_amount * 1.2
+                # 송장수량의 전체 범위를 상단 영역에 배치
+                line_height = max_stacked_amount * 0.6  # 누적막대 높이의 60%를 꺾은선 영역으로
+                min_quantity = line_start_point
+                expanded_max_quantity = line_start_point + line_height
+                
+                # 데이터 변환을 위한 스케일링 팩터 계산
+                if max_quantity > 0:
+                    quantity_scale_factor = line_height / max_quantity
+                    quantity_offset = line_start_point
+                else:
+                    quantity_scale_factor = 1
+                    quantity_offset = line_start_point
             else:
                 max_quantity = 50
-                min_quantity = 0
-                expanded_max_quantity = 125
+                line_start_point = max_stacked_amount * 1.2
+                min_quantity = line_start_point
+                expanded_max_quantity = line_start_point + max_stacked_amount * 0.6
+                quantity_scale_factor = (max_stacked_amount * 0.6) / 50
+                quantity_offset = line_start_point
                 
             # 송장금액 범위는 누적값 기준으로 설정
             expanded_max_amount = max_stacked_amount * 1.5  # 20% 여유공간
+            
+            # 송장수량 데이터를 상단 영역으로 변환
+            data = data.copy()
+            data['송장수량_변환'] = data['송장수량_천EA'] * quantity_scale_factor + quantity_offset
             
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
@@ -823,7 +841,7 @@ if df is not None and not df.empty:
                     strokeWidth=4
                 ).encode(
                     x=x_encoding,
-                    y=alt.Y('송장수량_천EA:Q', 
+                    y=alt.Y('송장수량_변환:Q', 
                            title='송장수량(천EA)', 
                            axis=alt.Axis(
                                orient='right', 
@@ -835,7 +853,7 @@ if df is not None and not df.empty:
                                titlePadding=20,
                                offset=5
                            ),
-                           # **심미적 개선: 확장된 Y축 범위로 꺾은선을 상단에 배치**
+                           # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     color=alt.Color(f"{group_col_name}:N"),
                     tooltip=tooltip_cols
@@ -847,7 +865,7 @@ if df is not None and not df.empty:
                     strokeWidth=4
                 ).encode(
                     x=x_encoding,
-                    y=alt.Y('송장수량_천EA:Q', 
+                    y=alt.Y('송장수량_변환:Q', 
                            title='송장수량(천EA)', 
                            axis=alt.Axis(
                                orient='right', 
@@ -859,7 +877,7 @@ if df is not None and not df.empty:
                                titlePadding=20,
                                offset=5
                            ),
-                           # **심미적 개선: 확장된 Y축 범위**
+                           # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     color=alt.value('red'),
                     tooltip=tooltip_cols
@@ -875,7 +893,7 @@ if df is not None and not df.empty:
                     y=alt.Y('송장금액_백만원:Q', 
                            axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_amount]),
-                           stack='zero'),
+                           stack='center'),
                     text=alt.condition(
                         alt.datum.송장금액_백만원 >= 10,  # 10 이상인 경우만 표시 (간단한 조건)
                         alt.Text('송장금액_백만원:Q', format='.0f'),
@@ -922,7 +940,7 @@ if df is not None and not df.empty:
                     dy=-15, fontSize=9, fontWeight='bold'
                 ).encode(
                     x=x_encoding,
-                    y=alt.Y('송장수량_천EA:Q', 
+                    y=alt.Y('송장수량_변환:Q', 
                            axis=None,
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     text=alt.condition(
@@ -937,7 +955,7 @@ if df is not None and not df.empty:
                     dy=-15, fontSize=9, fontWeight='bold'
                 ).encode(
                     x=x_encoding,
-                    y=alt.Y('송장수량_천EA:Q', 
+                    y=alt.Y('송장수량_변환:Q', 
                            axis=None,
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     text=alt.condition(

@@ -761,7 +761,7 @@ if df is not None and not df.empty:
                 max_quantity = non_zero_quantities.max()
                 min_quantity = 0  # 최소값은 0으로 고정
                 # **심미적 개선: 꺾은선이 상단에 보이도록 Y축 범위를 2.5배로 확장**
-                expanded_max_quantity = max_quantity * 1
+                expanded_max_quantity = max_quantity * 2.5
             else:
                 max_quantity = 50
                 min_quantity = 0
@@ -836,7 +836,7 @@ if df is not None and not df.empty:
                                offset=5
                            ),
                            # **심미적 개선: 확장된 Y축 범위로 꺾은선을 상단에 배치**
-                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity/1.5])),
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     color=alt.Color(f"{group_col_name}:N"),
                     tooltip=tooltip_cols
                 ).properties(**chart_props)

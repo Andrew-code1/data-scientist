@@ -737,7 +737,7 @@ if df is not None and not df.empty:
             
             # 차트 속성 정의 - padding은 LayerChart에서 적용
             chart_props = {
-                "height": 800,  # 고정 높이
+                "height": 600,  # 고정 높이
                 "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             

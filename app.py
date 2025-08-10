@@ -851,7 +851,8 @@ if df is not None and not df.empty:
                                tickColor='red',
                                labelPadding=15,
                                titlePadding=20,
-                               offset=5
+                               offset=5,
+                               labelExpr=f'round((datum.value - {quantity_offset}) / {quantity_scale_factor})'
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
@@ -875,7 +876,8 @@ if df is not None and not df.empty:
                                tickColor='red',
                                labelPadding=15,
                                titlePadding=20,
-                               offset=5
+                               offset=5,
+                               labelExpr=f'round((datum.value - {quantity_offset}) / {quantity_scale_factor})'
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),

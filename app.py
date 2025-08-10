@@ -728,7 +728,7 @@ if df is not None and not df.empty:
                 )
             )
 
-        # 복합 차트 생성 함수 (이중축)
+        # 복합 차트 생성 함수 (이중축) - 누적막대 + 심미적 개선
         def create_combined_chart(data, group_col_name=None):
             # 데이터 포인트 수에 따른 동적 막대 두께 계산
             data_points = len(data[time_name].unique()) if not data.empty else 1
@@ -746,100 +746,201 @@ if df is not None and not df.empty:
             if group_col_name:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 축 범위 계산 - 개선된 버전 (0이 아닌 값만 고려)
-            non_zero_amounts = data[data['송장금액_백만원'] > 0]['송장금액_백만원']
-            non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
-            
-            if not non_zero_amounts.empty:
-                max_amount = non_zero_amounts.max()
-                min_amount = max(non_zero_amounts.min() * 0.9, 0)  # 최솟값의 90%를 하한으로 설정 (단, 0 이상)
+            # **누적 막대를 위한 축 범위 계산 개선**
+            if group_col_name:
+                # 그룹별 데이터인 경우 시간별 누적값 계산
+                stacked_amounts = data.groupby(time_name)['송장금액_백만원'].sum()
+                max_stacked_amount = stacked_amounts.max() if not stacked_amounts.empty else 100
             else:
-                max_amount = 100
-                min_amount = 0
-                
+                # 전체 데이터인 경우
+                max_stacked_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            
+            # 송장수량 범위 계산 (꺾은선을 상단에 배치하기 위해 범위 확장)
+            non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
             if not non_zero_quantities.empty:
                 max_quantity = non_zero_quantities.max()
-                min_quantity = max(non_zero_quantities.min() * 0.9, 0)
+                min_quantity = 0  # 최소값은 0으로 고정
+                # **심미적 개선: 꺾은선이 상단에 보이도록 Y축 범위를 2.5배로 확장**
+                expanded_max_quantity = max_quantity * 2.5
             else:
                 max_quantity = 50
                 min_quantity = 0
+                expanded_max_quantity = 125
                 
-            expanded_max_amount = max_amount * 1.3
-            expanded_max_quantity = max_quantity * 1.3
+            # 송장금액 범위는 누적값 기준으로 설정
+            expanded_max_amount = max_stacked_amount * 1.2  # 20% 여유공간
             
-            # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
-            left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', 
-                       title='송장금액(백만원)', 
-                       axis=alt.Axis(
-                           orient='left', 
-                           titleColor='steelblue', 
-                           grid=True,
-                           labelColor='steelblue',
-                           tickColor='steelblue',
-                           labelPadding=15,  # 레이블과 축 사이 여백 증가
-                           titlePadding=20,  # 축 제목과 축 사이 여백 증가
-                           offset=5          # 축 자체를 차트에서 더 멀리 배치
-                       ),
-                       scale=alt.Scale(domain=[0, expanded_max_amount])),
-                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
-                tooltip=tooltip_cols
-            ).properties(**chart_props)
+            # **누적 막대차트** - 왼쪽 축만 표시
+            if group_col_name:
+                # 그룹별 누적 막대차트
+                left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           title='송장금액(백만원)', 
+                           axis=alt.Axis(
+                               orient='left', 
+                               titleColor='steelblue', 
+                               grid=True,
+                               labelColor='steelblue',
+                               tickColor='steelblue',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5
+                           ),
+                           scale=alt.Scale(domain=[0, expanded_max_amount]),
+                           stack='zero'),  # **누적 설정**
+                    color=alt.Color(f"{group_col_name}:N", 
+                                   legend=alt.Legend(title=group_col_name, orient='top-right')),
+                    tooltip=tooltip_cols,
+                    order=alt.Order(f"{group_col_name}:N", sort='ascending')  # 누적 순서 일관성
+                ).properties(**chart_props)
+            else:
+                # 전체 데이터 막대차트 (누적 없음)
+                left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           title='송장금액(백만원)', 
+                           axis=alt.Axis(
+                               orient='left', 
+                               titleColor='steelblue', 
+                               grid=True,
+                               labelColor='steelblue',
+                               tickColor='steelblue',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5
+                           ),
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    color=alt.value('steelblue'),
+                    tooltip=tooltip_cols
+                ).properties(**chart_props)
             
-            # 오른쪽 차트 - 송장수량 꺾은선 차트 (오른쪽 축만 표시)
-            right_chart = alt.Chart(data).mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', 
-                       title='송장수량(천EA)', 
-                       axis=alt.Axis(
-                           orient='right', 
-                           titleColor='red', 
-                           grid=False,
-                           labelColor='red',
-                           tickColor='red',
-                           labelPadding=15,  # 레이블과 축 사이 여백 증가
-                           titlePadding=20,  # 축 제목과 축 사이 여백 증가
-                           offset=5          # 축 자체를 차트에서 더 멀리 배치
-                       )),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
-                tooltip=tooltip_cols
-            ).properties(**chart_props)
+            # **꺾은선 차트** - 오른쪽 축만 표시, 확장된 Y축 범위
+            if group_col_name:
+                # 그룹별 꺾은선차트
+                right_chart = alt.Chart(data).mark_line(
+                    point=alt.OverlayMarkDef(size=100, filled=True), 
+                    strokeWidth=4
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_천EA:Q', 
+                           title='송장수량(천EA)', 
+                           axis=alt.Axis(
+                               orient='right', 
+                               titleColor='red', 
+                               grid=False,
+                               labelColor='red',
+                               tickColor='red',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5
+                           ),
+                           # **심미적 개선: 확장된 Y축 범위로 꺾은선을 상단에 배치**
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    color=alt.Color(f"{group_col_name}:N"),
+                    tooltip=tooltip_cols
+                ).properties(**chart_props)
+            else:
+                # 전체 데이터 꺾은선차트
+                right_chart = alt.Chart(data).mark_line(
+                    point=alt.OverlayMarkDef(size=100, filled=True), 
+                    strokeWidth=4
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_천EA:Q', 
+                           title='송장수량(천EA)', 
+                           axis=alt.Axis(
+                               orient='right', 
+                               titleColor='red', 
+                               grid=False,
+                               labelColor='red',
+                               tickColor='red',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5
+                           ),
+                           # **심미적 개선: 확장된 Y축 범위**
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    color=alt.value('red'),
+                    tooltip=tooltip_cols
+                ).properties(**chart_props)
             
-            # 막대 차트 데이터 레이블
-            bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', 
-                       axis=None,  # 레이블용이므로 축 숨김
-                       scale=alt.Scale(domain=[0, expanded_max_amount])),
-                text=alt.condition(
-                    alt.datum.송장금액_백만원 > 0,
-                    alt.Text('송장금액_백만원:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
-            ).properties(**chart_props)
+            # **데이터 레이블 개선**
+            if group_col_name:
+                # 누적 막대의 경우 각 세그먼트 중앙에 레이블 표시하지 않음 (복잡해짐)
+                # 대신 전체 누적값을 상단에 표시
+                stacked_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
+                stacked_totals[time_name] = pd.to_datetime(stacked_totals[time_name]) if time_unit == "월별" else stacked_totals[time_name]
+                
+                bar_text = alt.Chart(stacked_totals).mark_text(
+                    dy=-8, fontSize=10, fontWeight='bold', color='steelblue'
+                ).encode(
+                    x=x_encoding.copy(),
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 > 0,
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    )
+                ).properties(**chart_props)
+            else:
+                # 전체 데이터 막대 레이블
+                bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=10, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 > 0,
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.value('black')
+                ).properties(**chart_props)
             
-            # 꺾은선 차트 데이터 레이블  
-            line_text = alt.Chart(data).mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', axis=None),  # 레이블용이므로 축 숨김
-                text=alt.condition(
-                    alt.datum.송장수량_천EA > 0,
-                    alt.Text('송장수량_천EA:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
-            ).properties(**chart_props)
+            # 꺾은선 차트 데이터 레이블 - 개선된 위치
+            if group_col_name:
+                line_text = alt.Chart(data).mark_text(
+                    dy=-15, fontSize=9, fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_천EA:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    text=alt.condition(
+                        alt.datum.송장수량_천EA > 0,
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color(f"{group_col_name}:N")
+                ).properties(**chart_props)
+            else:
+                line_text = alt.Chart(data).mark_text(
+                    dy=-15, fontSize=9, fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_천EA:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    text=alt.condition(
+                        alt.datum.송장수량_천EA > 0,
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.value('red')
+                ).properties(**chart_props)
             
-            # 완전한 이중축 차트 - 각 축이 독립적으로 표시
+            # **완전한 이중축 차트 - 각 축이 독립적으로 표시**
             combined_chart = alt.layer(
-                left_chart,   # 왼쪽 축만 표시되는 막대차트
-                right_chart,  # 오른쪽 축만 표시되는 꺾은선차트  
+                left_chart,   # 누적 막대차트 (왼쪽 축)
+                right_chart,  # 꺾은선차트 (오른쪽 축, 확장된 범위)
                 bar_text,     # 막대차트 레이블
                 line_text     # 꺾은선차트 레이블
             ).resolve_scale(y='independent').properties(
-                padding={"left": 100, "top": 20, "right": 100, "bottom": 50}  # 모든 여백을 크게 증가하여 축과 차트 완전 분리
+                title=f"구매 데이터 추이 - {unit_text}",
+                padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
             )
             
             return combined_chart.add_params(click)

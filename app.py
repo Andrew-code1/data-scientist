@@ -746,9 +746,26 @@ if df is not None and not df.empty:
             if group_col_name:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 축 범위 계산 - 송장금액 축의 최대값을 130%로 확장하여 레이블 여백 확보
-            max_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            # 축 범위 계산 - 개선된 버전 (0이 아닌 값만 고려)
+            non_zero_amounts = data[data['송장금액_백만원'] > 0]['송장금액_백만원']
+            non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
+            
+            if not non_zero_amounts.empty:
+                max_amount = non_zero_amounts.max()
+                min_amount = max(non_zero_amounts.min() * 0.9, 0)  # 최솟값의 90%를 하한으로 설정 (단, 0 이상)
+            else:
+                max_amount = 100
+                min_amount = 0
+                
+            if not non_zero_quantities.empty:
+                max_quantity = non_zero_quantities.max()
+                min_quantity = max(non_zero_quantities.min() * 0.9, 0)
+            else:
+                max_quantity = 50
+                min_quantity = 0
+                
             expanded_max_amount = max_amount * 1.3
+            expanded_max_quantity = max_quantity * 1.3
             
             # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
             left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(

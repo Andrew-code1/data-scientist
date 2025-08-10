@@ -836,7 +836,7 @@ if df is not None and not df.empty:
                                offset=5
                            ),
                            # **심미적 개선: 확장된 Y축 범위로 꺾은선을 상단에 배치**
-                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity*2.5])),
                     color=alt.Color(f"{group_col_name}:N"),
                     tooltip=tooltip_cols
                 ).properties(**chart_props)

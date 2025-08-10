@@ -743,16 +743,23 @@ if df is not None and not df.empty:
                 )
             )
 
-        # 복합 차트 생성 함수 (이중축) - 안정화 버전
-        def create_combined_chart(data, group_col_name=None):
+        # 복합 차트 생성 함수 (이중축) - 완전 수정 버전
+        def create_combined_chart(data, group_col_name=None, time_unit="월별"):
             # 빈 데이터 체크
             if data.empty:
                 return alt.Chart(pd.DataFrame({'x': [0], 'y': [0]})).mark_text(
                     text="데이터가 없습니다", fontSize=16, color='gray'
                 ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
             
+            # 시간표시 컬럼이 있는지 확인
+            if "시간표시" not in data.columns:
+                st.error("데이터에 '시간표시' 컬럼이 없습니다.")
+                return alt.Chart(pd.DataFrame({'x': [0], 'y': [0]})).mark_text(
+                    text="데이터 오류", fontSize=16, color='red'
+                ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
+            
             # 기본 설정
-            data_points = len(data[time_name].unique()) if not data.empty else 1
+            data_points = len(data["시간표시"].unique()) if not data.empty else 1
             
             # 그룹 수 체크 및 제한 (상위 15개만)
             MAX_GROUPS = 15
@@ -772,6 +779,22 @@ if df is not None and not df.empty:
             else:
                 group_count = 1
                 
+            # X축 인코딩 생성 (함수 내부에서 직접 생성)
+            if time_unit == "월별":
+                x_encoding = alt.X(
+                    "시간표시:N", 
+                    title=time_unit,
+                    axis=alt.Axis(labelAngle=-45, offset=10),
+                    sort="ascending"
+                )
+            else:  # 연도별
+                x_encoding = alt.X(
+                    "시간표시:N", 
+                    title=time_unit,
+                    axis=alt.Axis(offset=10),
+                    sort="ascending"
+                )
+            
             # 동적 차트 크기 계산
             bar_size = max(8, min(40, 50 - group_count))
             chart_height = min(600, max(400, 380 + group_count * 20))
@@ -894,41 +917,49 @@ if df is not None and not df.empty:
                 combined_chart = alt.layer(left_chart, right_chart)
             
             # 최종 차트
-            final_chart = combined_chart.resolve_scale(y='independent').properties(
-                title=f"송장금액 vs 송장수량 복합차트 ({group_count}개 그룹)" if group_count > 1 else "송장금액 vs 송장수량 복합차트",
-                padding={"left": 80, "top": 40, "right": 80, "bottom": 40}
-            )
-            
-            return final_chart.add_params(click)
+            try:
+                final_chart = combined_chart.resolve_scale(y='independent').properties(
+                    title=f"송장금액 vs 송장수량 복합차트 ({group_count}개 그룹)" if group_count > 1 else "송장금액 vs 송장수량 복합차트",
+                    padding={"left": 80, "top": 40, "right": 80, "bottom": 40}
+                )
+                
+                # 클릭 이벤트 추가 (함수 내부에서 정의)
+                click_selection = alt.selection_point(name="point_select")
+                return final_chart.add_params(click_selection)
+            except Exception as e:
+                st.error(f"복합차트 생성 중 오류 발생: {str(e)}")
+                return alt.Chart(pd.DataFrame({'x': [0], 'y': [0]})).mark_text(
+                    text=f"차트 생성 실패: {str(e)}", fontSize=12, color='red'
+                ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
 
         if is_combined:
             # 복합 차트 처리 - 차트용 컬럼명 매핑
             chart_group_col = group_col
             if group_option == "전체":
-                chart = create_combined_chart(time_df)
+                chart = create_combined_chart(time_df, None, time_unit)
             elif group_option == "플랜트별":
                 chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
             elif group_option == "업체별":
                 chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
             elif group_option == "파트별":
                 chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
             elif group_option == "카테고리(최종)별":
                 chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
             elif group_option == "KPI용카테고리별":
                 chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
-                chart = create_combined_chart(time_df, chart_group_col)
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
             elif group_option == "플랜트+업체별":
-                chart = create_combined_chart(time_df, "플랜트_업체")
+                chart = create_combined_chart(time_df, "플랜트_업체", time_unit)
             elif group_option == "파트+카테고리(최종)별":
-                chart = create_combined_chart(time_df, "파트_카테고리")
+                chart = create_combined_chart(time_df, "파트_카테고리", time_unit)
             elif group_option == "파트+KPI용카테고리별":
-                chart = create_combined_chart(time_df, "파트_KPI카테고리")
+                chart = create_combined_chart(time_df, "파트_KPI카테고리", time_unit)
             else:  # 기타 그룹별 분석 (fallback)
-                chart = create_combined_chart(time_df, group_col)
+                chart = create_combined_chart(time_df, group_col, time_unit)
         elif group_option == "전체":
             base = alt.Chart(time_df)
             line = base.mark_line(point=True).encode(

@@ -634,6 +634,51 @@ if df is not None and not df.empty:
                     )
                 }
             )
+            
+            # 복합차트 생성 및 표시
+            st.subheader("송장금액 + 송장수량 복합차트")
+            if group_option == "전체":
+                chart = create_combined_chart(time_df, None, time_unit)
+            elif group_option == "플랜트별":
+                chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "업체별":
+                chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "파트별":
+                chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "카테고리(최종)별":
+                chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "KPI용카테고리별":
+                chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
+                chart = create_combined_chart(time_df, chart_group_col, time_unit)
+            elif group_option == "플랜트+업체별":
+                chart = create_combined_chart(time_df, "플랜트_업체", time_unit)
+            elif group_option == "파트+카테고리(최종)별":
+                chart = create_combined_chart(time_df, "파트_카테고리", time_unit)
+            elif group_option == "파트+KPI용카테고리별":
+                chart = create_combined_chart(time_df, "파트_KPI카테고리", time_unit)
+            else:  # 기타 그룹별 분석 (fallback)
+                chart = create_combined_chart(time_df, group_col, time_unit)
+                
+            # 복합차트 표시
+            event = st.altair_chart(chart, use_container_width=True, key="combined_chart")
+            
+            # 클릭 이벤트 처리
+            selected_data = None
+            try:
+                if (event is not None and 
+                    hasattr(event, 'selection') and 
+                    event.selection is not None and 
+                    isinstance(event.selection, dict) and
+                    "point_select" in event.selection):
+                    selected_data = event.selection["point_select"]
+                    if selected_data:
+                        st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
+            except Exception:
+                pass
         elif group_option == "전체":
             display_cols = ["시간표시", metric_name]
             st.dataframe(
@@ -935,145 +980,104 @@ if df is not None and not df.empty:
                     text=f"차트 생성 실패: {str(e)}", fontSize=12, color='red'
                 ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
 
-        if is_combined:
-            # 복합 차트 처리 - 차트용 컬럼명 매핑
-            chart_group_col = group_col
+        if not is_combined:
+            # 일반 차트 생성 (복합차트가 아닐 때만)
             if group_option == "전체":
-                chart = create_combined_chart(time_df, None, time_unit)
-            elif group_option == "플랜트별":
-                chart_group_col = "플랜트_차트" if "플랜트_차트" in time_df.columns else "플랜트"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "업체별":
-                chart_group_col = "공급업체_차트" if "공급업체_차트" in time_df.columns else "공급업체명"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "파트별":
-                chart_group_col = "파트_차트" if "파트_차트" in time_df.columns else "파트"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "카테고리(최종)별":
-                chart_group_col = "카테고리최종_차트" if "카테고리최종_차트" in time_df.columns else "카테고리(최종)"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "KPI용카테고리별":
-                chart_group_col = "KPI카테고리_차트" if "KPI카테고리_차트" in time_df.columns else "KPI용카테고리"
-                chart = create_combined_chart(time_df, chart_group_col, time_unit)
-            elif group_option == "플랜트+업체별":
-                chart = create_combined_chart(time_df, "플랜트_업체", time_unit)
-            elif group_option == "파트+카테고리(최종)별":
-                chart = create_combined_chart(time_df, "파트_카테고리", time_unit)
-            elif group_option == "파트+KPI용카테고리별":
-                chart = create_combined_chart(time_df, "파트_KPI카테고리", time_unit)
-            else:  # 기타 그룹별 분석 (fallback)
-                chart = create_combined_chart(time_df, group_col, time_unit)
-        elif group_option == "전체":
-            base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
-                tooltip=["시간표시:N", f"{metric_name}:Q"]
-            )
-            text = base.mark_text(dy=-10, fontSize=10, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q"),
-                text=alt.condition(
-                    f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
-                    alt.value('')
+                base = alt.Chart(time_df)
+                line = base.mark_line(point=True).encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    tooltip=["시간표시:N", f"{metric_name}:Q"]
                 )
-            )
-            chart = (line + text).add_params(click)
-        elif group_option == "플랜트+업체별":
-            base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
-                color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
-                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
-            )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q"),
-                text=alt.condition(
-                    f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color("플랜트_업체:N")
-            )
-            chart = (line + text).add_params(click)
-        elif group_option == "파트+카테고리(최종)별":
-            base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
-                color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
-                tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
-            )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q"),
-                text=alt.condition(
-                    f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color("파트_카테고리:N")
-            )
-            chart = (line + text).add_params(click)
-        elif group_option == "파트+KPI용카테고리별":
-            base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
-                color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
-                tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
-            )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q"),
-                text=alt.condition(
-                    f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color("파트_KPI카테고리:N")
-            )
-            chart = (line + text).add_params(click)
-        else:
-            base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
-                color=alt.Color(f"{group_col}:N", title=group_col),
-                tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
-            )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q"),
-                text=alt.condition(
-                    f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col}:N")
-            )
-            chart = (line + text).add_params(click)
-        
-        # 차트 표시 및 클릭 이벤트 처리
-        event = st.altair_chart(chart, use_container_width=True, key="main_chart")
-        
-        
-        # 클릭 이벤트 처리 (안전한 방식)
-        selected_data = None
-        try:
-            if (event is not None and 
-                hasattr(event, 'selection') and 
-                event.selection is not None and 
-                isinstance(event.selection, dict) and
-                "point_select" in event.selection):
-                selected_data = event.selection["point_select"]
-                if selected_data:
-                    st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
-        except Exception:
-            pass
+                text = base.mark_text(dy=-10, fontSize=10, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q"),
+                    text=alt.condition(
+                        f"datum.{metric_name} > 0",
+                        alt.Text(f"{metric_name}:Q", format='.0f'),
+                        alt.value('')
+                    )
+                )
+                chart = (line + text).add_params(click)
+            elif group_option == "플랜트+업체별":
+                base = alt.Chart(time_df)
+                line = base.mark_line(point=True).encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
+                    tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
+                )
+                text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q"),
+                    text=alt.condition(
+                        f"datum.{metric_name} > 0",
+                        alt.Text(f"{metric_name}:Q", format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color("플랜트_업체:N")
+                )
+                chart = (line + text).add_params(click)
+            elif group_option == "파트+카테고리(최종)별":
+                base = alt.Chart(time_df)
+                line = base.mark_line(point=True).encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
+                    tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
+                )
+                text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q"),
+                    text=alt.condition(
+                        f"datum.{metric_name} > 0",
+                        alt.Text(f"{metric_name}:Q", format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color("파트_카테고리:N")
+                )
+                chart = (line + text).add_params(click)
+            elif group_option == "파트+KPI용카테고리별":
+                base = alt.Chart(time_df)
+                line = base.mark_line(point=True).encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
+                    tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
+                )
+                text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q"),
+                    text=alt.condition(
+                        f"datum.{metric_name} > 0",
+                        alt.Text(f"{metric_name}:Q", format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color("파트_KPI카테고리:N")
+                )
+                chart = (line + text).add_params(click)
+            else:
+                base = alt.Chart(time_df)
+                line = base.mark_line(point=True).encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q", title=y_title),
+                    color=alt.Color(f"{group_col}:N", title=group_col),
+                    tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
+                )
+                text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y(f"{metric_name}:Q"),
+                    text=alt.condition(
+                        f"datum.{metric_name} > 0",
+                        alt.Text(f"{metric_name}:Q", format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color(f"{group_col}:N")
+                )
+                chart = (line + text).add_params(click)
+            
+            # 일반 차트 표시
+            event = st.altair_chart(chart, use_container_width=True, key="main_chart")
         
         # Raw 데이터 조회 섹션
         st.markdown("---")

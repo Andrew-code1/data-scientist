@@ -761,14 +761,14 @@ if df is not None and not df.empty:
                 max_quantity = non_zero_quantities.max()
                 min_quantity = 0  # 최소값은 0으로 고정
                 # **심미적 개선: 꺾은선이 상단에 보이도록 Y축 범위를 2.5배로 확장**
-                expanded_max_quantity = max_quantity * 2.5
+                expanded_max_quantity = max_quantity * 1
             else:
                 max_quantity = 50
                 min_quantity = 0
                 expanded_max_quantity = 125
                 
             # 송장금액 범위는 누적값 기준으로 설정
-            expanded_max_amount = max_stacked_amount * 1.2  # 20% 여유공간
+            expanded_max_amount = max_stacked_amount * 1.5  # 20% 여유공간
             
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:

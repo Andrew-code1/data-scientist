@@ -892,7 +892,7 @@ if df is not None and not df.empty:
                     x=x_encoding,
                     y=alt.Y('송장금액_백만원:Q', 
                            axis=None,
-                           scale=alt.Scale(domain=[0, expanded_max_amount]),
+                           scale=alt.Scale(domain=[0, max_stacked_amount]),
                            stack='center'),
                     text=alt.condition(
                         alt.datum.송장금액_백만원 >= 10,  # 10 이상인 경우만 표시 (간단한 조건)

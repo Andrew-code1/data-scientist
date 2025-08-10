@@ -807,7 +807,10 @@ if df is not None and not df.empty:
             
             # 그룹 컬럼 유효성 검사
             if group_col_name and group_col_name not in data.columns:
-                group_col_name = None
+                st.error(f"데이터에 '{group_col_name}' 컬럼이 없습니다. 사용 가능한 컬럼: {list(data.columns)}")
+                return alt.Chart(pd.DataFrame({'x': [0], 'y': [0]})).mark_text(
+                    text=f"컬럼 오류: {group_col_name}", fontSize=14, color='red'
+                ).encode(x='x:Q', y='y:Q').properties(width=400, height=300)
             
             # 툴팁 설정
             tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]

@@ -87,18 +87,22 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
     if "공급업체코드" in df.columns:
-        # 공급업체코드 안전하게 처리 - 소수점은 제거하되 원본 값 보존
+        # 공급업체코드 안전하게 처리 - 문자열 기반으로 소수점만 제거
         def clean_supplier_code(x):
             if pd.isna(x) or str(x).lower() in ['nan', 'none', ''] or str(x).strip() == '':
                 return ""
-            try:
-                # 숫자로 변환 가능한 경우 소수점만 제거
-                float_val = float(str(x).strip())
-                # 정수 부분만 추출하되 문자열로 유지
-                return str(int(float_val)) if float_val == int(float_val) else str(x).strip()
-            except (ValueError, TypeError):
-                # 변환 불가능한 경우 원본 문자열 유지  
-                return str(x).strip()
+            
+            str_val = str(x).strip()
+            
+            # .0으로 끝나는 경우만 제거 (예: "123.0" -> "123")
+            if str_val.endswith('.0'):
+                return str_val[:-2]
+            # .00으로 끝나는 경우도 제거 (예: "123.00" -> "123") 
+            elif str_val.endswith('.00'):
+                return str_val[:-3]
+            # 그 외에는 원본 유지
+            else:
+                return str_val
         
         df["공급업체코드"] = df["공급업체코드"].apply(clean_supplier_code)
         # 공급업체코드가 있는 경우만 업체표시 생성

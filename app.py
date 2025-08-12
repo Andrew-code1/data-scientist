@@ -62,14 +62,9 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def load_csv(upload: BytesIO) -> pd.DataFrame:
     df = pd.read_csv(upload, encoding="cp949", low_memory=False)
     
-    # 원본 컬럼 정보 저장 (디버깅용)
-    original_columns = list(df.columns)
-    st.session_state["original_columns"] = original_columns
     
     df = _standardize_columns(df)
     
-    # 컬럼 변환 후 정보 저장
-    st.session_state["processed_columns"] = list(df.columns)
     
     if "마감월" not in df.columns:
         st.error(" '마감월' 컬럼을 찾을 수 없습니다. 헤더명을 확인해 주세요.")
@@ -85,59 +80,9 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
 
     num_cols: List[str] = [c for c in ["송장수량", "송장금액", "단가", "플랜트", "구매그룹"] if c in df.columns]
     
-    # 숫자 컬럼 처리 전 데이터 샘플 저장 (디버깅용)
-    numeric_debug_info = {}
-    for col in ["송장수량", "송장금액", "단가"]:
-        if col in df.columns:
-            sample_values = df[col].head(5).tolist()
-            numeric_debug_info[col] = {
-                'sample_values': sample_values,
-                'data_type': str(df[col].dtype),
-                'null_count': df[col].isnull().sum(),
-                'total_count': len(df[col])
-            }
-    st.session_state["numeric_debug_info"] = numeric_debug_info
-    
     if num_cols:
-        # 숫자 변환 시 오류 추적
-        conversion_errors = {}
         for col in num_cols:
-            original_values = df[col].copy()
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-            
-            # 변환 실패한 값들 추적
-            failed_conversion = original_values[pd.to_numeric(original_values, errors="coerce").isnull()]
-            if not failed_conversion.empty:
-                conversion_errors[col] = failed_conversion.head(10).tolist()
-        
-        st.session_state["conversion_errors"] = conversion_errors
-    
-    # 데이터 품질 검사
-    data_quality_issues = []
-    
-    # 송장금액 검사
-    if "송장금액" in df.columns:
-        zero_amount = (df["송장금액"] == 0).sum()
-        total_rows = len(df)
-        if zero_amount > total_rows * 0.5:  # 50% 이상이 0인 경우
-            data_quality_issues.append(f"송장금액: {zero_amount}/{total_rows}건이 0 또는 비어있음")
-    else:
-        data_quality_issues.append("송장금액 컬럼이 발견되지 않음")
-    
-    # 송장수량 검사  
-    if "송장수량" in df.columns:
-        zero_quantity = (df["송장수량"] == 0).sum()
-        total_rows = len(df)
-        if zero_quantity > total_rows * 0.5:
-            data_quality_issues.append(f"송장수량: {zero_quantity}/{total_rows}건이 0 또는 비어있음")
-    else:
-        data_quality_issues.append("송장수량 컬럼이 발견되지 않음")
-    
-    # 공급업체 정보 검사
-    if "공급업체명" not in df.columns:
-        data_quality_issues.append("공급업체명 컬럼이 발견되지 않음")
-    
-    st.session_state["data_quality_issues"] = data_quality_issues
 
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
@@ -202,6 +147,19 @@ def format_numeric_columns(df: pd.DataFrame, numeric_cols: list[str]) -> pd.Data
     return df_formatted
 
 
+def enhance_pattern(pattern: str) -> str:
+    """자재 검색 패턴 강화 함수"""
+    if "*" not in pattern:
+        if " " in pattern:
+            # 띄어쓰기가 있으면 각 단어에 와일드카드 적용
+            words = pattern.split()
+            pattern = "*" + "*".join(words) + "*"
+        else:
+            # 단일 단어도 양쪽에 와일드카드 추가
+            pattern = "*" + pattern + "*"
+    return pattern.replace("*", "%").replace("'", "''")
+
+
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
@@ -222,9 +180,6 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
 
 with st.sidebar:
     st.header("CSV 업로드")
-    st.info("파일 요구사항:")
-    st.write("- 인코딩: CP949")
-    st.write("- 필수 컬럼: 마감월, 송장금액, 송장수량")
     uploaded_file = st.file_uploader("CSV 파일 선택", type="csv", help="CP949 인코딩으로 저장된 CSV 파일")
 
 if uploaded_file:
@@ -252,111 +207,12 @@ else:
     df = None
 
 if df is not None and not df.empty:
-    # 디버깅 섹션 추가
-    with st.expander("파일 분석 및 디버깅 정보 확인", expanded=False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("원본 컬럼 목록")
-            if "original_columns" in st.session_state:
-                for i, col in enumerate(st.session_state["original_columns"], 1):
-                    st.write(f"{i}. {col}")
-            
-            # 주요 컬럼 존재 여부 확인
-            st.subheader("주요 컬럼 검사")
-            key_columns = ["송장금액", "송장수량", "공급업체명", "자재", "자재명"]
-            for col in key_columns:
-                status = "✓" if col in df.columns else "❌"
-                st.write(f"{status} {col}")
-        
-        with col2:
-            st.subheader("처리 후 컬럼 목록")
-            if "processed_columns" in st.session_state:
-                for i, col in enumerate(st.session_state["processed_columns"], 1):
-                    st.write(f"{i}. {col}")
-            
-            # 숫자 컬럼 데이터 품질 확인
-            st.subheader("숫자 데이터 품질")
-            if "numeric_debug_info" in st.session_state:
-                for col, info in st.session_state["numeric_debug_info"].items():
-                    st.write(f"**{col}**:")
-                    st.write(f"- 데이터 타입: {info['data_type']}")
-                    st.write(f"- 널 값: {info['null_count']}/{info['total_count']}")
-                    st.write(f"- 샘플 값: {info['sample_values']}")
-        
-        # 변환 오류 정보
-        if "conversion_errors" in st.session_state and st.session_state["conversion_errors"]:
-            st.subheader("데이터 변환 문제")
-            for col, errors in st.session_state["conversion_errors"].items():
-                if errors:
-                    st.error(f"{col} 컬럼에서 숫자로 변환할 수 없는 값들: {errors}")
-        
-        # 데이터 품질 경고
-        if "data_quality_issues" in st.session_state and st.session_state["data_quality_issues"]:
-            st.subheader("데이터 품질 문제")
-            for issue in st.session_state["data_quality_issues"]:
-                st.warning(issue)
-            
-            # 개선 제안
-            st.info("해결 방안:")
-            st.write("1. CSV 파일의 컬럼명이 올바른지 확인하세요")
-            st.write("2. 송장금액, 송장수량 컬럼에 숫자 데이터가 들어있는지 확인하세요")
-            st.write("3. 파일 인코딩이 CP949인지 확인하세요")
-        
-        # 데이터 미리보기
-        st.subheader("데이터 미리보기 (5개 행)")
-        preview_df = df.head()
-        # 주요 컬럼만 보여주기 위해 컬럼 선택
-        key_cols = [col for col in ["마감월", "공급업체명", "자재", "자재명", "송장수량", "송장금액", "단가"] if col in preview_df.columns]
-        if key_cols:
-            st.dataframe(preview_df[key_cols], use_container_width=True)
-        else:
-            st.dataframe(preview_df, use_container_width=True)
-        
-        # 집계 결과 디버깅 정보 (있는 경우)
-        if "debug_aggregation_info" in st.session_state:
-            st.subheader("차트 집계 결과 분석")
-            agg_info = st.session_state["debug_aggregation_info"]
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("총 집계 행수", agg_info['total_rows'])
-            with col2:
-                st.metric("고유 월 수", agg_info['unique_months'])
-            with col3:
-                st.metric("날짜 범위", agg_info['date_range'])
-            
-            if agg_info['group_option'] != "전체":
-                st.write(f"**분석 단위**: {agg_info['group_option']}")
-                if 'unique_groups' in agg_info:
-                    st.write(f"**고유 그룹 수**: {agg_info['unique_groups']}")
-                    if 'groups_list' in agg_info:
-                        st.write(f"**그룹 예시**: {', '.join(map(str, agg_info['groups_list'][:5]))}")
-            
-            # 중복 월 경고 - 더 상세한 분석
-            expected_rows = agg_info['unique_months'] * (agg_info.get('unique_groups', 1) if agg_info['group_option'] != "전체" else 1)
-            if agg_info['total_rows'] > expected_rows:
-                st.warning(f"⚠️ X축 중복 감지! 예상: {expected_rows}행, 실제: {agg_info['total_rows']}행")
-                st.error("이는 X축에 같은 월이 여러 번 나타나는 원인입니다.")
-                
-                # 해결 방안 제시
-                st.info("**해결 방안:**")
-                if agg_info['group_option'] == "전체":
-                    st.write("- 원본 데이터에 같은 월의 중복 레코드가 있을 가능성")
-                    st.write("- SQL 집계가 올바르게 되지 않고 있음")
-                else:
-                    st.write("- 각 그룹별로 시계열을 보려면 정상적인 현상일 수 있음")
-                    st.write("- 전체 합계를 보려면 '전체' 분석 옵션을 선택하세요")
-            else:
-                st.success("✅ 정상적인 집계 결과입니다.")
-            
-            # 상세 차트 데이터 분석 추가
-            if 'chart_data_sample' in agg_info:
-                with st.expander("차트 데이터 샘플 (X축 중복 분석용)"):
-                    st.dataframe(agg_info['chart_data_sample'], use_container_width=True)
-            
-            with st.expander("SQL 쿼리 확인"):
-                st.code(agg_info['sql_query'], language="sql")
+    # 전역 자재 검색을 위한 session_state 초기화
+    if 'global_material_name_search' not in st.session_state:
+        st.session_state.global_material_name_search = ""
+    if 'global_material_code_search' not in st.session_state:
+        st.session_state.global_material_code_search = ""
+    
     
     con = duckdb.connect(database=":memory:")
     con.register("data", df)
@@ -409,6 +265,14 @@ if df is not None and not df.empty:
         sel_parts = multiselect_with_toggle("파트", parts_all, "pt") if parts_all else []
         sel_categories = multiselect_with_toggle("카테고리(최종)", categories_all, "ct") if categories_all else []
         sel_kpi_categories = multiselect_with_toggle("KPI용카테고리", kpi_categories_all, "kc") if kpi_categories_all else []
+        
+        # 필터 초기화 버튼
+        if st.button("🗑️ 모든 필터 초기화", key="clear_all_filters"):
+            # 세션 상태 초기화 (자재 검색 제외, 하단에서 관리)
+            for key in list(st.session_state.keys()):
+                if key.endswith("_ms"):
+                    del st.session_state[key]
+            st.rerun()
 
     # 연월 필터링을 위한 SQL 조건 생성
     ym_conditions = []
@@ -453,19 +317,93 @@ if df is not None and not df.empty:
         clauses.append(f"\"카테고리(최종)\" IN ({sql_list_str(sel_categories)})")
     if kpi_categories_all and sel_kpi_categories:
         clauses.append(f"KPI용카테고리 IN ({sql_list_str(sel_kpi_categories)})")
+    
+    # 자재 검색 조건 추가 (하단 검색과 전역 연동)
+    material_search_conditions = []
+    material_name_search = st.session_state.global_material_name_search
+    material_code_search = st.session_state.global_material_code_search
+    
+    if material_name_search and material_name_search.strip():
+        enhanced_name_patt = enhance_pattern(material_name_search.strip())
+        material_search_conditions.append(f"자재명 ILIKE '{enhanced_name_patt}'")
+    if material_code_search and material_code_search.strip():
+        enhanced_code_patt = enhance_pattern(material_code_search.strip())
+        material_search_conditions.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+    
+    if material_search_conditions:
+        # 자재 검색 조건을 AND로 연결 (둘 다 입력된 경우)
+        material_clause = " AND ".join(material_search_conditions)
+        clauses.append(f"({material_clause})")
 
     where_sql = " WHERE " + " AND ".join(clauses)
 
     st.title("구매 데이터 추이 분석")
     
-    # 차트 해석 도움말
-    with st.expander("📊 차트 해석 가이드", expanded=False):
-        st.write("**월별 그래프에서 같은 월이 여러 번 나타나는 경우:**")
-        st.write("- '전체' 분석: 일반적으로 월당 1개 데이터포인트")
-        st.write("- '업체별' 분석: 같은 월에 여러 업체가 있으면 각각 별도 라인으로 표시")
-        st.write("- '플랜트별' 분석: 같은 월에 여러 플랜트가 있으면 각각 별도 라인으로 표시")
-        st.write("- 이는 정상적인 동작이며, 각 그룹별로 시계열을 보여주는 것입니다.")
-        st.info("같은 월에 대한 전체 합계를 보고 싶다면 '전체' 분석 옵션을 선택하세요.")
+    # 활성화된 필터 조건 표시
+    active_filters = []
+    
+    # 기간 필터
+    if len(sel_yearmonths) < len(yearmonths_all):
+        period_text = f"{min(sel_yearmonths)}~{max(sel_yearmonths)}" if len(sel_yearmonths) > 1 else sel_yearmonths[0]
+        active_filters.append(f"📅 기간: {period_text}")
+    
+    # 기본 필터들
+    if sel_plants and len(sel_plants) < len(plants_all):
+        plant_text = ", ".join(map(str, sel_plants[:3]))
+        if len(sel_plants) > 3:
+            plant_text += f" 외 {len(sel_plants)-3}개"
+        active_filters.append(f"플랜트: {plant_text}")
+    
+    if sel_groups and len(sel_groups) < len(groups_all):
+        group_text = ", ".join(map(str, sel_groups[:3]))
+        if len(sel_groups) > 3:
+            group_text += f" 외 {len(sel_groups)-3}개"
+        active_filters.append(f"🔧 구매그룹: {group_text}")
+    
+    if sel_suppliers and len(sel_suppliers) < len(suppliers_all):
+        supplier_text = ", ".join([s.split("_", 1)[1] if "_" in s else s for s in sel_suppliers[:2]])
+        if len(sel_suppliers) > 2:
+            supplier_text += f" 외 {len(sel_suppliers)-2}개"
+        active_filters.append(f"🏢 공급업체: {supplier_text}")
+    
+    # 새로운 필터들
+    if sel_parts and len(sel_parts) < len(parts_all):
+        parts_text = ", ".join(sel_parts[:3])
+        if len(sel_parts) > 3:
+            parts_text += f" 외 {len(sel_parts)-3}개"
+        active_filters.append(f"👥 파트: {parts_text}")
+    
+    if sel_categories and len(sel_categories) < len(categories_all):
+        cat_text = ", ".join(sel_categories[:3])
+        if len(sel_categories) > 3:
+            cat_text += f" 외 {len(sel_categories)-3}개"
+        active_filters.append(f"📂 카테고리: {cat_text}")
+    
+    if sel_kpi_categories and len(sel_kpi_categories) < len(kpi_categories_all):
+        kpi_text = ", ".join(sel_kpi_categories[:3])
+        if len(sel_kpi_categories) > 3:
+            kpi_text += f" 외 {len(sel_kpi_categories)-3}개"
+        active_filters.append(f"KPI카테고리: {kpi_text}")
+    
+    # 자재 검색 필터 (하단 검색과 연동)
+    if material_name_search and material_name_search.strip():
+        active_filters.append(f"자재명: {material_name_search}")
+    if material_code_search and material_code_search.strip():
+        active_filters.append(f"자재코드: {material_code_search}")
+    
+    # 활성 필터 표시
+    if active_filters:
+        st.info(f"**활성 필터**: {' | '.join(active_filters)}")
+        if len(active_filters) > 1:
+            st.caption("여러 필터가 동시에 적용되어 데이터가 교집합으로 필터링됩니다.")
+        
+        # 필터링된 데이터 요약 정보 추가
+        if material_name_search or material_code_search:
+            st.success("**자재 검색 필터가 전체 대시보드에 적용되었습니다!**")
+            st.caption("구매 데이터 추이, Raw 데이터 조회, 업체별 구매 현황이 모두 검색된 자재로 필터링됩니다.")
+    else:
+        st.info("**전체 데이터** 표시 중 (필터 없음)")
+    
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -604,38 +542,6 @@ if df is not None and not df.empty:
     
     time_df = con.execute(sql_query).fetchdf()
     
-    # 디버깅을 위한 집계 정보 저장
-    if not time_df.empty:
-        debug_aggregation_info = {
-            'total_rows': len(time_df),
-            'unique_months': time_df[time_name].nunique() if time_name in time_df.columns else 0,
-            'date_range': f"{time_df[time_name].min()} ~ {time_df[time_name].max()}" if time_name in time_df.columns else "N/A",
-            'sql_query': sql_query,
-            'group_option': group_option,
-            'time_unit': time_unit
-        }
-        
-        # 그룹별 분석인 경우 그룹 정보도 추가
-        if group_option != "전체" and group_col in time_df.columns:
-            debug_aggregation_info['unique_groups'] = time_df[group_col].nunique()
-            debug_aggregation_info['groups_list'] = time_df[group_col].unique().tolist()[:10]  # 최대 10개만
-        else:
-            debug_aggregation_info['unique_groups'] = 1  # 전체 분석시
-        
-        # 차트 데이터 샘플 추가 (X축 중복 분석용)
-        sample_cols = [time_name]
-        if group_option != "전체" and group_col in time_df.columns:
-            sample_cols.append(group_col)
-        # 첫 번째 메트릭 컬럼 추가
-        if is_combined:
-            sample_cols.extend(['송장금액_백만원', '송장수량_천EA'])
-        else:
-            sample_cols.append(metric_name)
-        
-        # 상위 10개 행 샘플
-        debug_aggregation_info['chart_data_sample'] = time_df[sample_cols].head(10)
-        
-        st.session_state["debug_aggregation_info"] = debug_aggregation_info
 
     if time_df.empty:
         st.error("선택한 조건에 해당하는 데이터가 없습니다.")
@@ -796,13 +702,16 @@ if df is not None and not df.empty:
                     labelAngle=-45,
                     labelOverlap=False,
                     labelSeparation=15,
-                    values=unique_months  # 정확한 월 값들만 표시
+                    values=unique_months,  # 정확한 월 값들만 표시
+                    offset=10  # X축을 아래로 이동하여 Y축과 거리 확보
                 ),
                 sort="ascending",
                 scale=alt.Scale(
                     type="time",
                     nice=False,
-                    domain=unique_months  # 도메인을 정확한 월들로 제한
+                    domain=unique_months,  # 도메인을 정확한 월들로 제한
+                    padding=0.2,  # X축 양쪽 여백을 20%로 증가
+                    range=[50, {"expr": "width-50"}]  # 실제 차트 영역을 왼쪽 50px, 오른쪽 50px 안쪽으로 제한
                 )
             )
         else:
@@ -811,89 +720,279 @@ if df is not None and not df.empty:
             x_encoding = alt.X(
                 f"{time_name}:O", 
                 title=time_unit,
+                axis=alt.Axis(offset=10),  # X축을 아래로 이동
                 sort="ascending",
-                scale=alt.Scale(domain=unique_years)  # 도메인 명시적 지정
+                scale=alt.Scale(
+                    domain=unique_years,  # 도메인 명시적 지정
+                    padding=0.2,  # X축 양쪽 여백을 20%로 증가
+                    range=[50, {"expr": "width-50"}]  # 실제 차트 영역을 왼쪽 50px, 오른쪽 50px 안쪽으로 제한
+                )
             )
 
-        # 복합 차트 생성 함수 (이중축)
+        # 복합 차트 생성 함수 (이중축) - 누적막대 + 심미적 개선
         def create_combined_chart(data, group_col_name=None):
-            base_chart = alt.Chart(data)
+            # 데이터 포인트 수에 따른 동적 막대 두께 계산
+            data_points = len(data[time_name].unique()) if not data.empty else 1
+            # 2개월이면 두껍게, 12개월이면 적당하게
+            bar_size = max(15, min(60, 120 - data_points * 5))
+            
+            # 차트 속성 정의 - padding은 LayerChart에서 적용
+            chart_props = {
+                "height": 600,  # 고정 높이
+                "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
+            }
             
             # 툴팁 설정
             tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
             if group_col_name:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
-            # 축 범위 계산 - 송장금액 축의 최대값을 130%로 확장하여 레이블 여백 확보
-            max_amount = data['송장금액_백만원'].max() if not data.empty else 100
-            expanded_max_amount = max_amount * 1.3
+            # **누적 막대를 위한 축 범위 계산 개선**
+            if group_col_name:
+                # 그룹별 데이터인 경우 시간별 누적값 계산
+                stacked_amounts = data.groupby(time_name)['송장금액_백만원'].sum()
+                max_stacked_amount = stacked_amounts.max() if not stacked_amounts.empty else 100
+            else:
+                # 전체 데이터인 경우
+                max_stacked_amount = data['송장금액_백만원'].max() if not data.empty else 100
             
-            # 왼쪽 차트 - 송장금액 막대 차트 (왼쪽 축만 표시)
-            left_chart = base_chart.mark_bar(opacity=0.6).encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', 
-                       title='송장금액(백만원)', 
-                       axis=alt.Axis(
-                           orient='left', 
-                           titleColor='steelblue', 
-                           grid=True,
-                           labelColor='steelblue',
-                           tickColor='steelblue'
-                       ),
-                       scale=alt.Scale(domain=[0, expanded_max_amount])),
-                color=alt.Color(f"{group_col_name}:N", legend=alt.Legend(title=group_col_name)) if group_col_name else alt.value('steelblue'),
-                tooltip=tooltip_cols
-            )
+            # 송장수량 범위 계산 (꺾은선을 누적막대 상단에 배치)
+            non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
+            if not non_zero_quantities.empty:
+                max_quantity = non_zero_quantities.max()
+                # 누적막대 최대값의 120% 지점을 꺾은선 시작점으로 설정
+                line_start_point = max_stacked_amount * 1.2
+                # 송장수량의 전체 범위를 상단 영역에 배치
+                line_height = max_stacked_amount * 0.6  # 누적막대 높이의 60%를 꺾은선 영역으로
+                min_quantity = line_start_point
+                expanded_max_quantity = line_start_point + line_height
+                
+                # 데이터 변환을 위한 스케일링 팩터 계산
+                if max_quantity > 0:
+                    quantity_scale_factor = line_height / max_quantity
+                    quantity_offset = line_start_point
+                else:
+                    quantity_scale_factor = 1
+                    quantity_offset = line_start_point
+            else:
+                max_quantity = 50
+                line_start_point = max_stacked_amount * 1.2
+                min_quantity = line_start_point
+                expanded_max_quantity = line_start_point + max_stacked_amount * 0.6
+                quantity_scale_factor = (max_stacked_amount * 0.6) / 50
+                quantity_offset = line_start_point
+                
+            # 송장금액 범위는 누적값 기준으로 설정
+            expanded_max_amount = max_stacked_amount * 1.5  # 20% 여유공간
             
-            # 막대 차트 데이터 레이블
-            bar_text = base_chart.mark_text(dy=-8, fontSize=9, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장금액_백만원:Q', 
-                       axis=None,  # 레이블용이므로 축 숨김
-                       scale=alt.Scale(domain=[0, expanded_max_amount])),
-                text=alt.condition(
-                    alt.datum.송장금액_백만원 > 0,
-                    alt.Text('송장금액_백만원:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('black')
-            )
+            # 송장수량 데이터를 상단 영역으로 변환
+            data = data.copy()
+            data['송장수량_변환'] = data['송장수량_천EA'] * quantity_scale_factor + quantity_offset
             
-            # 오른쪽 차트 - 송장수량 꺾은선 차트 (오른쪽 축만 표시)
-            right_chart = base_chart.mark_line(point=alt.OverlayMarkDef(size=80), strokeWidth=3).encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', 
-                       title='송장수량(천EA)', 
-                       axis=alt.Axis(
-                           orient='right', 
-                           titleColor='red', 
-                           grid=False,
-                           labelColor='red',
-                           tickColor='red'
-                       )),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red'),
-                tooltip=tooltip_cols
-            )
+            # **누적 막대차트** - 왼쪽 축만 표시
+            if group_col_name:
+                # 그룹별 누적 막대차트
+                left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           title='송장금액(백만원)', 
+                           axis=alt.Axis(
+                               orient='left', 
+                               titleColor='steelblue', 
+                               grid=True,
+                               labelColor='steelblue',
+                               tickColor='steelblue',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5
+                           ),
+                           scale=alt.Scale(domain=[0, expanded_max_amount]),
+                           stack='zero'),  # **누적 설정**
+                    color=alt.Color(f"{group_col_name}:N", 
+                                   legend=alt.Legend(title=group_col_name, orient='right')),
+                    tooltip=tooltip_cols,
+                    order=alt.Order(f"{group_col_name}:N", sort='ascending')  # 누적 순서 일관성
+                ).properties(**chart_props)
+            else:
+                # 전체 데이터 막대차트 (누적 없음)
+                left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           title='송장금액(백만원)', 
+                           axis=alt.Axis(
+                               orient='left', 
+                               titleColor='steelblue', 
+                               grid=True,
+                               labelColor='steelblue',
+                               tickColor='steelblue',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5
+                           ),
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    color=alt.value('steelblue'),
+                    tooltip=tooltip_cols
+                ).properties(**chart_props)
             
-            # 꺾은선 차트 데이터 레이블
-            line_text = base_chart.mark_text(dy=-18, fontSize=8, fontWeight='bold').encode(
-                x=x_encoding,
-                y=alt.Y('송장수량_천EA:Q', axis=None),  # 레이블용이므로 축 숨김
-                text=alt.condition(
-                    alt.datum.송장수량_천EA > 0,
-                    alt.Text('송장수량_천EA:Q', format='.0f'),
-                    alt.value('')
-                ),
-                color=alt.Color(f"{group_col_name}:N") if group_col_name else alt.value('red')
-            )
+            # **꺾은선 차트** - 오른쪽 축만 표시, 확장된 Y축 범위
+            if group_col_name:
+                # 그룹별 꺾은선차트
+                right_chart = alt.Chart(data).mark_line(
+                    point=alt.OverlayMarkDef(size=100, filled=True), 
+                    strokeWidth=4
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_변환:Q', 
+                           title='송장수량(천EA)', 
+                           axis=alt.Axis(
+                               orient='right', 
+                               titleColor='red', 
+                               grid=False,
+                               labelColor='red',
+                               tickColor='red',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5,
+                               labelExpr=f'round((datum.value - {quantity_offset}) / {quantity_scale_factor})'
+                           ),
+                           # **상단 영역으로 변환된 데이터 범위**
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    color=alt.Color(f"{group_col_name}:N"),
+                    tooltip=tooltip_cols
+                ).properties(**chart_props)
+            else:
+                # 전체 데이터 꺾은선차트
+                right_chart = alt.Chart(data).mark_line(
+                    point=alt.OverlayMarkDef(size=100, filled=True), 
+                    strokeWidth=4
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_변환:Q', 
+                           title='송장수량(천EA)', 
+                           axis=alt.Axis(
+                               orient='right', 
+                               titleColor='red', 
+                               grid=False,
+                               labelColor='red',
+                               tickColor='red',
+                               labelPadding=15,
+                               titlePadding=20,
+                               offset=5,
+                               labelExpr=f'round((datum.value - {quantity_offset}) / {quantity_scale_factor})'
+                           ),
+                           # **상단 영역으로 변환된 데이터 범위**
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    color=alt.value('red'),
+                    tooltip=tooltip_cols
+                ).properties(**chart_props)
             
-            # 완전한 이중축 차트 - 각 축이 독립적으로 표시
-            return alt.layer(
-                left_chart,   # 왼쪽 축만 표시되는 막대차트
-                right_chart,  # 오른쪽 축만 표시되는 꺾은선차트  
-                bar_text,     # 막대차트 레이블
-                line_text     # 꺾은선차트 레이블
-            ).resolve_scale(y='independent').add_params(click)
+            # **데이터 레이블 개선**
+            if group_col_name:
+                # 누적 막대의 각 세그먼트에 레이블 표시 (간단한 조건으로)
+                segment_text = alt.Chart(data).mark_text(
+                    dy=0, fontSize=9, fontWeight='bold', color='white'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[0, expanded_max_amount]),
+                           stack='center'),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 >= 10,  # 10 이상인 경우만 표시 (간단한 조건)
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    order=alt.Order(f"{group_col_name}:N", sort='ascending')
+                ).properties(**chart_props)
+                
+                # 전체 누적값도 상단에 표시
+                stacked_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
+                stacked_totals[time_name] = pd.to_datetime(stacked_totals[time_name]) if time_unit == "월별" else stacked_totals[time_name]
+                
+                bar_text = alt.Chart(stacked_totals).mark_text(
+                    dy=-8, fontSize=10, fontWeight='bold', color='steelblue'
+                ).encode(
+                    x=x_encoding.copy(),
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 > 0,
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    )
+                ).properties(**chart_props)
+            else:
+                # 전체 데이터 막대 레이블
+                bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=10, fontWeight='bold').encode(
+                    x=x_encoding,
+                    y=alt.Y('송장금액_백만원:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
+                    text=alt.condition(
+                        alt.datum.송장금액_백만원 > 0,
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.value('black')
+                ).properties(**chart_props)
+            
+            # 꺾은선 차트 데이터 레이블 - 개선된 위치
+            if group_col_name:
+                line_text = alt.Chart(data).mark_text(
+                    dy=-15, fontSize=9, fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_변환:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    text=alt.condition(
+                        alt.datum.송장수량_천EA > 0,
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.Color(f"{group_col_name}:N")
+                ).properties(**chart_props)
+            else:
+                line_text = alt.Chart(data).mark_text(
+                    dy=-15, fontSize=9, fontWeight='bold'
+                ).encode(
+                    x=x_encoding,
+                    y=alt.Y('송장수량_변환:Q', 
+                           axis=None,
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
+                    text=alt.condition(
+                        alt.datum.송장수량_천EA > 0,
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.value('')
+                    ),
+                    color=alt.value('red')
+                ).properties(**chart_props)
+            
+            # **완전한 이중축 차트 - 각 축이 독립적으로 표시**
+            if group_col_name:
+                combined_chart = alt.layer(
+                    left_chart,    # 누적 막대차트 (왼쪽 축)
+                    right_chart,   # 꺾은선차트 (오른쪽 축, 확장된 범위)
+                    segment_text,  # 누적 막대 세그먼트 레이블
+                    bar_text,      # 막대차트 총합 레이블
+                    line_text      # 꺾은선차트 레이블
+                ).resolve_scale(y='independent').properties(
+                    title=f"구매 데이터 추이 - {unit_text}",
+                    padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
+                )
+            else:
+                combined_chart = alt.layer(
+                    left_chart,   # 일반 막대차트 (왼쪽 축)
+                    right_chart,  # 꺾은선차트 (오른쪽 축, 확장된 범위)
+                    bar_text,     # 막대차트 레이블
+                    line_text     # 꺾은선차트 레이블
+                ).resolve_scale(y='independent').properties(
+                    title=f"구매 데이터 추이 - {unit_text}",
+                    padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
+                )
+            
+            return combined_chart.add_params(click)
 
         if is_combined:
             # 복합 차트 처리
@@ -905,12 +1004,12 @@ if df is not None and not df.empty:
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
             base = alt.Chart(time_df)
-            line = base.mark_line(point=True).encode(
+            line = base.mark_line(point=alt.OverlayMarkDef(size=100)).encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 tooltip=["시간표시:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=10, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=11, fontWeight='bold', color='darkblue').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -928,7 +1027,7 @@ if df is not None and not df.empty:
                 color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
                 tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -947,7 +1046,7 @@ if df is not None and not df.empty:
                 color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
                 tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -966,7 +1065,7 @@ if df is not None and not df.empty:
                 color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
                 tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -985,7 +1084,7 @@ if df is not None and not df.empty:
                 color=alt.Color(f"{group_col}:N", title=group_col),
                 tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
             )
-            text = base.mark_text(dy=-10, fontSize=8, fontWeight='bold').encode(
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
@@ -1000,17 +1099,6 @@ if df is not None and not df.empty:
         # 차트 표시 및 클릭 이벤트 처리
         event = st.altair_chart(chart, use_container_width=True, key="main_chart")
         
-        # 디버깅: 이벤트 정보 표시
-        if st.checkbox("디버그 모드 (이벤트 정보 표시)", key="debug_mode"):
-            st.write("Event object type:", type(event))
-            st.write("Event object:", event)
-            if event is not None and hasattr(event, 'selection'):
-                st.write("Selection type:", type(event.selection))
-                st.write("Selection:", event.selection)
-                if event.selection is not None:
-                    st.write("Selection keys:", list(event.selection.keys()) if isinstance(event.selection, dict) else "Not a dict")
-            else:
-                st.write("Event has no selection attribute")
         
         # 클릭 이벤트 처리 (안전한 방식)
         selected_data = None
@@ -1023,13 +1111,12 @@ if df is not None and not df.empty:
                 selected_data = event.selection["point_select"]
                 if selected_data:
                     st.info(f"차트 클릭 감지됨! 선택된 데이터: {selected_data}")
-        except Exception as e:
-            if st.session_state.get("debug_mode", False):
-                st.error(f"Selection 처리 중 오류: {e}")
+        except Exception:
+            pass
         
         # Raw 데이터 조회 섹션
         st.markdown("---")
-        st.subheader("📊 상세 Raw 데이터 조회")
+        st.subheader("상세 Raw 데이터 조회")
         
         with st.expander("기간별 데이터 조회", expanded=True):
             # 조회 방식 선택
@@ -1252,8 +1339,13 @@ if df is not None and not df.empty:
                     if zero_quantities > len(raw_df) * 0.3:
                         st.warning(f"주의: 송장수량이 0인 데이터가 {zero_quantities}건 있습니다.")
                     
-                    # 기간별 요약 정보 먼저 표시
+                    # 전체 데이터 요약 정보 표시
+                    total_amount = raw_df['송장금액'].sum()
+                    total_quantity = raw_df['송장수량'].sum()
+                    total_materials = len(raw_df)
+                    
                     if len(query_yearmonths) > 1:
+                        # 특정 기간: 월별 누계 현황
                         summary_df = raw_df.groupby('마감월').agg({
                             '송장금액': 'sum',
                             '송장수량': 'sum',
@@ -1261,14 +1353,14 @@ if df is not None and not df.empty:
                         }).reset_index()
                         summary_df.columns = ['연월', '송장금액', '송장수량', '자재건수']
                         
-                        st.subheader("📈 월별 누계 현황")
+                        st.subheader("월별 누계 현황")
                         col1, col2, col3 = st.columns(3)
                         with col1:
-                            st.metric("총 송장금액", f"{summary_df['송장금액'].sum():,.0f}원")
+                            st.metric("총 송장금액", f"{total_amount:,.0f}원")
                         with col2:
-                            st.metric("총 송장수량", f"{summary_df['송장수량'].sum():,.0f}")
+                            st.metric("총 송장수량", f"{total_quantity:,.0f}")
                         with col3:
-                            st.metric("총 자재건수", f"{summary_df['자재건수'].sum():,.0f}건")
+                            st.metric("총 자재건수", f"{total_materials:,.0f}건")
                         
                         st.dataframe(
                             summary_df, 
@@ -1285,8 +1377,18 @@ if df is not None and not df.empty:
                                 )
                             }
                         )
+                    else:
+                        # 특정 시점: 데이터 요약
+                        st.subheader("데이터 요약")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("총 송장금액", f"{total_amount:,.0f}원")
+                        with col2:
+                            st.metric("총 송장수량", f"{total_quantity:,.0f}")
+                        with col3:
+                            st.metric("총 자재건수", f"{total_materials:,.0f}건")
                     
-                    st.subheader("📋 상세 Raw 데이터")
+                    st.subheader("상세 Raw 데이터")
                     
                     # 합계 행 추가
                     if not raw_df.empty:
@@ -1454,24 +1556,53 @@ if df is not None and not df.empty:
             )
 
     st.markdown("---")
-    st.header("🔍 자재 검색 (와일드카드 * 사용 가능)")
-    col1, col2 = st.columns(2)
+    st.header("자재 검색 (와일드카드 * 사용 가능)")
+    
+    # 전역 연동 안내
+    st.info("**여기서 입력한 검색 조건이 위의 모든 차트와 분석에 자동 적용됩니다!**")
+    
+    col1, col2, col3 = st.columns([4, 4, 2])
     with col1:
-        material_name_patt = st.text_input("자재명 패턴", placeholder="예) *퍼퓸*1L*")
+        material_name_patt = st.text_input(
+            "자재명 패턴", 
+            placeholder="예) *퍼퓸*1L*",
+            value=st.session_state.global_material_name_search,
+            key="material_name_input"
+        )
     with col2:
-        material_code_patt = st.text_input("자재코드 패턴", placeholder="예) *1234567*")
+        material_code_patt = st.text_input(
+            "자재코드 패턴", 
+            placeholder="예) *1234567*",
+            value=st.session_state.global_material_code_search,
+            key="material_code_input"
+        )
+    with col3:
+        st.write("")  # 여백
+        if st.button("🗑️ 자재 검색 초기화", key="clear_material_search"):
+            st.session_state.global_material_name_search = ""
+            st.session_state.global_material_code_search = ""
+            st.rerun()
+    
+    # session_state 업데이트
+    if material_name_patt != st.session_state.global_material_name_search:
+        st.session_state.global_material_name_search = material_name_patt
+        st.rerun()
+    if material_code_patt != st.session_state.global_material_code_search:
+        st.session_state.global_material_code_search = material_code_patt
+        st.rerun()
+    
+    # 검색 활성화 상태 표시
+    if material_name_patt or material_code_patt:
+        st.success("**자재 검색이 활성화되었습니다!** 위의 모든 분석이 이 조건으로 필터링됩니다.")
+        search_info = []
+        if material_name_patt:
+            search_info.append(f"자재명: {material_name_patt}")
+        if material_code_patt:
+            search_info.append(f"자재코드: {material_code_patt}")
+        st.caption(f"적용된 검색 조건: {' | '.join(search_info)}")
+    else:
+        st.info("검색 조건을 입력하면 전체 대시보드가 해당 자재로 필터링됩니다.")
 
-    # 패턴 강화 함수
-    def enhance_pattern(pattern):
-        if "*" not in pattern:
-            if " " in pattern:
-                # 띄어쓰기가 있으면 각 단어에 와일드카드 적용
-                words = pattern.split()
-                pattern = "*" + "*".join(words) + "*"
-            else:
-                # 단일 단어도 양쪽에 와일드카드 추가
-                pattern = "*" + pattern + "*"
-        return pattern.replace("*", "%").replace("'", "''")
 
     # 검색 조건 생성
     search_conditions = []
@@ -1538,7 +1669,7 @@ if df is not None and not df.empty:
                 }).reset_index()
                 search_summary.columns = ['연월', '송장금액_백만원', '송장수량_천EA', '자재건수']
                 
-                st.subheader("🔍 검색결과 월별 요약")
+                st.subheader("검색결과 월별 요약")
                 st.dataframe(
                     search_summary, 
                     use_container_width=True, 
@@ -1555,7 +1686,7 @@ if df is not None and not df.empty:
                     }
                 )
             
-            st.subheader("📋 검색결과 상세")
+            st.subheader("검색결과 상세")
             st.dataframe(
                 search_df, 
                 use_container_width=True,

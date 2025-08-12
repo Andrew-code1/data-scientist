@@ -1247,13 +1247,13 @@ if df is not None and not df.empty:
                 
                 period_filter = " OR ".join(period_conditions)
                 
-                # 기본 쿼리 - 안전한 캐스팅 적용
+                # 기본 쿼리 - 정밀도 보존을 위해 문자열 그대로 사용
                 supplier_code_select = ""
                 if "공급업체코드" in df.columns:
                     supplier_code_select = """
                        CASE 
                            WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                           ELSE CAST(CAST(공급업체코드 AS FLOAT) AS BIGINT)
+                           ELSE 공급업체코드
                        END AS 공급업체코드,
                     """
                 
@@ -1485,7 +1485,7 @@ if df is not None and not df.empty:
             supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS BIGINT)
+                       ELSE 공급업체코드
                    END AS 공급업체코드,
             """
             group_by_clause = "1, 2"
@@ -1626,13 +1626,13 @@ if df is not None and not df.empty:
         # AND 조건으로 검색 (둘 다 입력된 경우) 또는 개별 조건
         search_where = " AND ".join(search_conditions)
         
-        # 자재 검색 쿼리 - 안전한 캐스팅 적용
+        # 자재 검색 쿼리 - 정밀도 보존을 위해 문자열 그대로 사용
         search_supplier_code_select = ""
         if "공급업체코드" in df.columns:
             search_supplier_code_select = """
                    CASE 
                        WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                       ELSE CAST(CAST(공급업체코드 AS FLOAT) AS BIGINT)
+                       ELSE 공급업체코드
                    END AS 공급업체코드,
             """
         

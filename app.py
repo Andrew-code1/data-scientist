@@ -791,30 +791,37 @@ if df is not None and not df.empty:
                 # 전체 데이터인 경우
                 max_stacked_amount = data['송장금액_백만원'].max() if not data.empty else 100
             
-            # 송장수량 범위 계산 (꺾은선을 누적막대 상단에 배치)
+            # 송장수량 범위 계산 (꺾은선을 누적막대 상단에 배치) - 개선된 축 설정
             non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
             if not non_zero_quantities.empty:
                 max_quantity = non_zero_quantities.max()
+                # 최댓값을 10단위로 반올림 (깔끔한 축 표시)
+                import math
+                max_quantity_rounded = math.ceil(max_quantity / 10) * 10
+                
                 # 누적막대 최대값의 120% 지점을 꺾은선 시작점으로 설정
                 line_start_point = max_stacked_amount * 1.2
                 # 송장수량의 전체 범위를 상단 영역에 배치
                 line_height = max_stacked_amount * 0.6  # 누적막대 높이의 60%를 꺾은선 영역으로
-                min_quantity = line_start_point
+                min_quantity = 0  # 최솟값을 0으로 고정
+                
+                # 0부터 반올림된 최댓값까지의 범위를 line_height에 매핑
                 expanded_max_quantity = line_start_point + line_height
                 
-                # 데이터 변환을 위한 스케일링 팩터 계산
-                if max_quantity > 0:
-                    quantity_scale_factor = line_height / max_quantity
+                # 데이터 변환을 위한 스케일링 팩터 계산 (0~max_quantity_rounded를 line_start_point~expanded_max_quantity로 변환)
+                if max_quantity_rounded > 0:
+                    quantity_scale_factor = line_height / max_quantity_rounded
                     quantity_offset = line_start_point
                 else:
                     quantity_scale_factor = 1
                     quantity_offset = line_start_point
             else:
-                max_quantity = 50
+                max_quantity_rounded = 50
                 line_start_point = max_stacked_amount * 1.2
-                min_quantity = line_start_point
-                expanded_max_quantity = line_start_point + max_stacked_amount * 0.6
-                quantity_scale_factor = (max_stacked_amount * 0.6) / 50
+                min_quantity = 0  # 최솟값을 0으로 고정
+                line_height = max_stacked_amount * 0.6
+                expanded_max_quantity = line_start_point + line_height
+                quantity_scale_factor = line_height / max_quantity_rounded
                 quantity_offset = line_start_point
                 
             # 송장금액 범위는 누적값 기준으로 설정
@@ -888,7 +895,7 @@ if df is not None and not df.empty:
                                labelPadding=15,
                                titlePadding=20,
                                offset=5,
-                               labelExpr=f'round((datum.value - {quantity_offset}) / {quantity_scale_factor})'
+                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor}))'
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
@@ -913,7 +920,7 @@ if df is not None and not df.empty:
                                labelPadding=15,
                                titlePadding=20,
                                offset=5,
-                               labelExpr=f'round((datum.value - {quantity_offset}) / {quantity_scale_factor})'
+                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor}))'
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
@@ -923,17 +930,41 @@ if df is not None and not df.empty:
             
             # **데이터 레이블 개선**
             if group_col_name:
-                # 누적 막대의 각 세그먼트에 레이블 표시 (간단한 조건으로)
-                segment_text = alt.Chart(data).mark_text(
+                # 누적 막대의 각 세그먼트에 레이블 표시 - 정확한 중점 계산
+                # 먼저 누적 데이터의 중점을 계산하기 위해 데이터를 변환
+                segment_data = data.copy()
+                segment_data = segment_data.sort_values([time_name, group_col_name])
+                
+                # 각 시점별로 누적 값 계산
+                cumulative_data = []
+                for time_val in segment_data[time_name].unique():
+                    time_group = segment_data[segment_data[time_name] == time_val]
+                    cumsum = 0
+                    for _, row in time_group.iterrows():
+                        start_y = cumsum
+                        end_y = cumsum + row['송장금액_백만원']
+                        mid_y = (start_y + end_y) / 2  # 중점 계산
+                        
+                        cumulative_data.append({
+                            time_name: time_val,
+                            group_col_name: row[group_col_name],
+                            '송장금액_백만원': row['송장금액_백만원'],
+                            'mid_y': mid_y  # 중점 위치
+                        })
+                        cumsum = end_y
+                
+                # 중점 데이터를 DataFrame으로 변환
+                mid_point_df = pd.DataFrame(cumulative_data)
+                
+                segment_text = alt.Chart(mid_point_df).mark_text(
                     dy=0, fontSize=9, fontWeight='bold', color='white'
                 ).encode(
                     x=x_encoding,
-                    y=alt.Y('송장금액_백만원:Q', 
+                    y=alt.Y('mid_y:Q', 
                            axis=None,
-                           scale=alt.Scale(domain=[0, expanded_max_amount]),
-                           stack='center'),
+                           scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
-                        alt.datum.송장금액_백만원 >= 10,  # 10 이상인 경우만 표시 (간단한 조건)
+                        alt.datum.송장금액_백만원 >= 20,  # 20 이상인 경우만 표시 (가독성 개선)
                         alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
                     ),
@@ -1596,21 +1627,6 @@ if df is not None and not df.empty:
     # 전역 연동 안내
     st.info("**여기서 입력한 검색 조건이 위의 모든 차트와 분석에 자동 적용됩니다!**")
     
-    # 사용법 안내
-    with st.expander("💡 다중 검색 사용법", expanded=False):
-        st.markdown("""
-        **자재명 검색:**
-        - 여러 검색어를 쉼표(,) 또는 줄바꿈으로 구분하여 입력
-        - OR 조건으로 검색 (하나라도 일치하면 검색됨)
-        - 와일드카드(*) 사용 가능
-        - 예시: `*퍼퓸*, *로션*, *크림*`
-        
-        **자재코드 검색:**
-        - 여러 코드를 쉼표(,), 줄바꿈, 탭으로 구분하여 입력
-        - 엑셀에서 복사한 데이터를 그대로 붙여넣기 가능
-        - 숫자는 정확 매치, 패턴은 와일드카드(*) 사용
-        - 예시: `1234567, 2345678` 또는 엑셀 복사 붙여넣기
-        """)
     
     col1, col2, col3 = st.columns([4, 4, 2])
     with col1:

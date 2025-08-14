@@ -460,6 +460,17 @@ if df is not None and not df.empty:
             key="time_unit_select"
         )
 
+    # 비중 표시 옵션 추가
+    st.markdown("**📊 누적 막대 레이블 표시 방식**")
+    col4, col5, col6 = st.columns([3, 3, 6])
+    with col4:
+        label_display_mode = st.radio(
+            "레이블 표시",
+            ["절대값", "비중(%)"],
+            key="label_display_mode",
+            horizontal=True
+        )
+
     if metric_option == "송장금액":
         metric_col = "SUM(송장금액)/1000000"
         metric_name = "송장금액_백만원"
@@ -803,9 +814,9 @@ if df is not None and not df.empty:
                 line_start_point = max_stacked_amount * 1.2
                 # 송장수량의 전체 범위를 상단 영역에 배치
                 line_height = max_stacked_amount * 0.6  # 누적막대 높이의 60%를 꺾은선 영역으로
-                min_quantity = 0  # 최솟값을 0으로 고정
                 
-                # 0부터 반올림된 최댓값까지의 범위를 line_height에 매핑
+                # y축 표시 범위: 실제 그래프 시작점부터 시작 (0 중복 표시 방지)
+                min_quantity = line_start_point  # 그래프 시작점
                 expanded_max_quantity = line_start_point + line_height
                 
                 # 데이터 변환을 위한 스케일링 팩터 계산 (0~max_quantity_rounded를 line_start_point~expanded_max_quantity로 변환)
@@ -818,7 +829,7 @@ if df is not None and not df.empty:
             else:
                 max_quantity_rounded = 50
                 line_start_point = max_stacked_amount * 1.2
-                min_quantity = 0  # 최솟값을 0으로 고정
+                min_quantity = line_start_point  # 그래프 시작점 (0 중복 표시 방지)
                 line_height = max_stacked_amount * 0.6
                 expanded_max_quantity = line_start_point + line_height
                 quantity_scale_factor = line_height / max_quantity_rounded
@@ -831,6 +842,15 @@ if df is not None and not df.empty:
             data = data.copy()
             data['송장수량_변환'] = data['송장수량_천EA'] * quantity_scale_factor + quantity_offset
             
+            # **업체별 총액 기준 내림차순 정렬** (가장 큰 업체가 아래부터 쌓이도록)
+            if group_col_name:
+                # 각 그룹별 총액 계산
+                group_totals = data.groupby(group_col_name)['송장금액_백만원'].sum().reset_index()
+                group_totals_sorted = group_totals.sort_values('송장금액_백만원', ascending=False)
+                
+                # 정렬된 그룹 순서 리스트 생성 (큰 것부터)
+                sorted_groups = group_totals_sorted[group_col_name].tolist()
+                
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
@@ -853,7 +873,7 @@ if df is not None and not df.empty:
                     color=alt.Color(f"{group_col_name}:N", 
                                    legend=alt.Legend(title=group_col_name, orient='right')),
                     tooltip=tooltip_cols,
-                    order=alt.Order(f"{group_col_name}:N", sort='ascending')  # 누적 순서 일관성
+                    order=alt.Order(f"{group_col_name}:N", sort=sorted_groups)  # 총액 기준 내림차순 정렬 (큰 것부터)
                 ).properties(**chart_props)
             else:
                 # 전체 데이터 막대차트 (누적 없음)
@@ -930,31 +950,54 @@ if df is not None and not df.empty:
             
             # **데이터 레이블 개선**
             if group_col_name:
-                # 누적 막대의 각 세그먼트에 레이블 표시 - 정확한 중점 계산
+                # 누적 막대의 각 세그먼트에 레이블 표시 - 정확한 중점 계산 (정렬된 순서 적용)
                 # 먼저 누적 데이터의 중점을 계산하기 위해 데이터를 변환
                 segment_data = data.copy()
-                segment_data = segment_data.sort_values([time_name, group_col_name])
                 
-                # 각 시점별로 누적 값 계산
+                # 각 시점별로 누적 값 계산 (총액 기준 내림차순 순서 적용)
                 cumulative_data = []
+                # 각 시점별 총합 계산 (비중 계산용)
+                time_totals = segment_data.groupby(time_name)['송장금액_백만원'].sum().to_dict()
+                
                 for time_val in segment_data[time_name].unique():
                     time_group = segment_data[segment_data[time_name] == time_val]
+                    time_total = time_totals[time_val]  # 해당 시점의 총합
+                    
+                    # 정렬된 그룹 순서대로 누적 계산 (큰 것부터)
                     cumsum = 0
-                    for _, row in time_group.iterrows():
-                        start_y = cumsum
-                        end_y = cumsum + row['송장금액_백만원']
-                        mid_y = (start_y + end_y) / 2  # 중점 계산
-                        
-                        cumulative_data.append({
-                            time_name: time_val,
-                            group_col_name: row[group_col_name],
-                            '송장금액_백만원': row['송장금액_백만원'],
-                            'mid_y': mid_y  # 중점 위치
-                        })
-                        cumsum = end_y
+                    for group_val in sorted_groups:
+                        group_row = time_group[time_group[group_col_name] == group_val]
+                        if not group_row.empty:
+                            row = group_row.iloc[0]
+                            start_y = cumsum
+                            end_y = cumsum + row['송장금액_백만원']
+                            mid_y = (start_y + end_y) / 2  # 중점 계산
+                            
+                            # 비중 계산
+                            percentage = (row['송장금액_백만원'] / time_total * 100) if time_total > 0 else 0
+                            
+                            cumulative_data.append({
+                                time_name: time_val,
+                                group_col_name: row[group_col_name],
+                                '송장금액_백만원': row['송장금액_백만원'],
+                                '비중': percentage,
+                                'mid_y': mid_y  # 중점 위치
+                            })
+                            cumsum = end_y
                 
                 # 중점 데이터를 DataFrame으로 변환
                 mid_point_df = pd.DataFrame(cumulative_data)
+                
+                # 표시 모드에 따른 레이블 텍스트 설정
+                if label_display_mode == "비중(%)":
+                    # 비중 표시: "12.3%" 형태로 표시
+                    mid_point_df['display_text'] = mid_point_df['비중'].apply(lambda x: f"{x:.1f}%" if x > 0 else "")
+                    text_field = 'display_text:N'
+                    threshold_field = alt.datum.비중 >= 5  # 5% 이상만 표시
+                else:
+                    # 절대값 표시
+                    text_field = '송장금액_백만원:Q'
+                    threshold_field = alt.datum.송장금액_백만원 >= 20  # 20 백만원 이상만 표시
                 
                 segment_text = alt.Chart(mid_point_df).mark_text(
                     dy=0, fontSize=9, fontWeight='bold', color='white'
@@ -964,11 +1007,11 @@ if df is not None and not df.empty:
                            axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
-                        alt.datum.송장금액_백만원 >= 20,  # 20 이상인 경우만 표시 (가독성 개선)
-                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        threshold_field,
+                        alt.Text(text_field, format='.0f') if label_display_mode == "절대값" else alt.Text(text_field),
                         alt.value('')
                     ),
-                    order=alt.Order(f"{group_col_name}:N", sort='ascending')
+                    order=alt.Order(f"{group_col_name}:N", sort=sorted_groups)
                 ).properties(**chart_props)
                 
                 # 전체 누적값도 상단에 표시

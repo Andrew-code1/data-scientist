@@ -851,6 +851,10 @@ if df is not None and not df.empty:
                 # 정렬된 그룹 순서 리스트 생성 (큰 것부터)
                 sorted_groups = group_totals_sorted[group_col_name].tolist()
                 
+                # 데이터를 sorted_groups 순서대로 사전 정렬 (Altair Order 문제 해결)
+                data[group_col_name] = pd.Categorical(data[group_col_name], categories=sorted_groups, ordered=True)
+                data = data.sort_values([time_name, group_col_name])
+                
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
@@ -873,7 +877,7 @@ if df is not None and not df.empty:
                     color=alt.Color(f"{group_col_name}:N", 
                                    legend=alt.Legend(title=group_col_name, orient='right')),
                     tooltip=tooltip_cols,
-                    order=alt.Order(f"{group_col_name}:N", sort=sorted_groups)  # 총액 기준 내림차순 정렬 (큰 것부터)
+                    order=alt.Order(f"{group_col_name}:N")  # 사전 정렬된 데이터 사용
                 ).properties(**chart_props)
             else:
                 # 전체 데이터 막대차트 (누적 없음)
@@ -1005,7 +1009,7 @@ if df is not None and not df.empty:
                             alt.Text('display_text:N'),
                             alt.value('')
                         ),
-                        order=alt.Order(f"{group_col_name}:N", sort=sorted_groups)
+                        order=alt.Order(f"{group_col_name}:N")
                     ).properties(**chart_props)
                 else:
                     # 절대값 표시
@@ -1021,7 +1025,7 @@ if df is not None and not df.empty:
                             alt.Text('송장금액_백만원:Q', format='.0f'),
                             alt.value('')
                         ),
-                        order=alt.Order(f"{group_col_name}:N", sort=sorted_groups)
+                        order=alt.Order(f"{group_col_name}:N")
                     ).properties(**chart_props)
                 
                 # 전체 누적값도 상단에 표시

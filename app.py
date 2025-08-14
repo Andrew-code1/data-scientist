@@ -164,25 +164,6 @@ def enhance_pattern(pattern: str) -> str:
     return pattern.replace("*", "%").replace("'", "''")
 
 
-def calculate_percentage_data(df: pd.DataFrame, time_col: str, group_col: str, value_col: str) -> pd.DataFrame:
-    """각 시점별로 그룹의 비중(%)을 계산하는 함수"""
-    df_pct = df.copy()
-    
-    # 각 시점별 총합 계산
-    time_totals = df_pct.groupby(time_col)[value_col].sum().reset_index()
-    time_totals.columns = [time_col, 'total']
-    
-    # 원본 데이터와 총합 조인
-    df_pct = df_pct.merge(time_totals, on=time_col, how='left')
-    
-    # 비중 계산 (0으로 나누기 방지)
-    df_pct[f'{value_col}_비중'] = df_pct.apply(
-        lambda row: round((row[value_col] / row['total']) * 100, 0) if row['total'] > 0 else 0, 
-        axis=1
-    )
-    
-    return df_pct
-
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
@@ -459,8 +440,7 @@ if df is not None and not df.empty:
         st.info("**전체 데이터** 표시 중 (필터 없음)")
     
     
-    # **개선된 차트 옵션 선택 UI**
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     with col1:
         metric_option = st.selectbox(
             "표시할 지표",
@@ -479,37 +459,18 @@ if df is not None and not df.empty:
             ["월별", "연도별"],
             key="time_unit_select"
         )
-    with col4:
-        # **새로운 옵션들 추가**
-        display_mode = st.selectbox(
-            "표시 모드",
-            ["실제값", "비중(%)"],
-            key="display_mode_select",
-            help="실제값: 원본 데이터 표시, 비중(%): 각 시점별 비중으로 표시"
-        )
-
-    # **단일 차트 타입 선택 옵션 추가** (그룹별 분석이고 복합차트가 아닌 경우만)
-    if group_option != "전체" and metric_option != "송장금액+송장수량":
-        chart_type = st.selectbox(
-            "차트 타입",
-            ["꺾은선 그래프", "누적 막대그래프"],
-            key="chart_type_select",
-            help="꺾은선 그래프: 시간별 추이 표시, 누적 막대그래프: 구성 비중과 추이 동시 표시"
-        )
-    else:
-        chart_type = "꺾은선 그래프"  # 기본값
 
     if metric_option == "송장금액":
         metric_col = "SUM(송장금액)/1000000"
         metric_name = "송장금액_백만원"
         unit_text = "백만원"
-        y_title = "송장금액 (백만원)" if display_mode == "실제값" else "송장금액 비중 (%)"
+        y_title = "송장금액 (백만원)"
         is_combined = False
     elif metric_option == "송장수량":
         metric_col = "SUM(송장수량)/1000"
         metric_name = "송장수량_천EA"
         unit_text = "천EA"
-        y_title = "송장수량 (천EA)" if display_mode == "실제값" else "송장수량 비중 (%)"
+        y_title = "송장수량 (천EA)"
         is_combined = False
     else:  # 송장금액+송장수량
         metric_col = "SUM(송장금액)/1000000, SUM(송장수량)/1000"
@@ -624,16 +585,6 @@ if df is not None and not df.empty:
         st.write("2. 필터 조건을 더 넓히 설정해보세요")
         st.write("3. 송장금액이나 송장수량 데이터가 없을 수 있습니다")
     else:
-        # **비중 계산 추가** - 그룹별 분석인 경우에만
-        if display_mode == "비중(%)" and group_option != "전체":
-            if is_combined:
-                # 복합 차트의 경우 각각 비중 계산
-                time_df = calculate_percentage_data(time_df, time_name, group_col, "송장금액_백만원")
-                time_df = calculate_percentage_data(time_df, time_name, group_col, "송장수량_천EA")
-            else:
-                # 단일 지표의 경우 해당 지표만 비중 계산
-                time_df = calculate_percentage_data(time_df, time_name, group_col, metric_name)
-        
         # 시간 표시 컬럼 생성 - 중복 방지 개선
         if time_unit == "월별":
             # 날짜 타입 확인 후 처리
@@ -674,47 +625,26 @@ if df is not None and not df.empty:
         elif group_option == "파트+KPI용카테고리별":
             time_df["파트_KPI카테고리"] = time_df["파트"].astype(str) + "_" + time_df["KPI용카테고리"]
         
-        # **데이터 테이블 표시 - 비중 모드에 따른 컬럼 표시 개선**
+        # 데이터 테이블 표시
         if is_combined:
             # 복합 차트용 테이블 표시
             if group_option == "전체":
-                if display_mode == "비중(%)":
-                    display_cols = ["시간표시", "송장금액_백만원", "송장수량_천EA"]
-                else:
-                    display_cols = ["시간표시", "송장금액_백만원", "송장수량_천EA"]
+                display_cols = ["시간표시", "송장금액_백만원", "송장수량_천EA"]
             elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
                 if group_option == "플랜트+업체별":
-                    base_cols = ["시간표시", "플랜트", "공급업체명"]
+                    display_cols = ["시간표시", "플랜트", "공급업체명", "송장금액_백만원", "송장수량_천EA"]
                 elif group_option == "파트+카테고리(최종)별":
-                    base_cols = ["시간표시", "파트", "카테고리(최종)"]
+                    display_cols = ["시간표시", "파트", "카테고리(최종)", "송장금액_백만원", "송장수량_천EA"]
                 else:  # 파트+KPI용카테고리별
-                    base_cols = ["시간표시", "파트", "KPI용카테고리"]
-                
-                if display_mode == "비중(%)":
-                    display_cols = base_cols + ["송장금액_백만원_비중", "송장수량_천EA_비중"]
-                else:
-                    display_cols = base_cols + ["송장금액_백만원", "송장수량_천EA"]
+                    display_cols = ["시간표시", "파트", "KPI용카테고리", "송장금액_백만원", "송장수량_천EA"]
             else:
-                if display_mode == "비중(%)":
-                    display_cols = ["시간표시", group_col, "송장금액_백만원_비중", "송장수량_천EA_비중"]
-                else:
-                    display_cols = ["시간표시", group_col, "송장금액_백만원", "송장수량_천EA"]
+                display_cols = ["시간표시", group_col, "송장금액_백만원", "송장수량_천EA"]
             
-            # 컬럼 설정
-            column_config = {}
-            if display_mode == "비중(%)" and group_option != "전체":
-                column_config.update({
-                    "송장금액_백만원_비중": st.column_config.NumberColumn(
-                        "송장금액 비중(%)",
-                        format="%.0f%%"
-                    ),
-                    "송장수량_천EA_비중": st.column_config.NumberColumn(
-                        "송장수량 비중(%)",
-                        format="%.0f%%"
-                    )
-                })
-            else:
-                column_config.update({
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
                     "송장금액_백만원": st.column_config.NumberColumn(
                         "송장금액(백만원)",
                         format="%.0f"
@@ -723,13 +653,7 @@ if df is not None and not df.empty:
                         "송장수량(천EA)",
                         format="%.0f"
                     )
-                })
-            
-            st.dataframe(
-                time_df[display_cols], 
-                hide_index=True, 
-                use_container_width=True,
-                column_config=column_config
+                }
             )
         elif group_option == "전체":
             display_cols = ["시간표시", metric_name]
@@ -744,34 +668,55 @@ if df is not None and not df.empty:
                     )
                 }
             )
-        else:
-            # 그룹별 단일 지표 테이블
-            if display_mode == "비중(%)" and group_option != "전체":
-                value_col = f"{metric_name}_비중"
-                value_col_title = f"{metric_name.replace('_', ' ')} 비중(%)"
-                value_format = "%.0f%%"
-            else:
-                value_col = metric_name
-                value_col_title = metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)")
-                value_format = "%.0f"
-            
-            if group_option == "플랜트+업체별":
-                display_cols = ["시간표시", "플랜트", "공급업체명", value_col]
-            elif group_option == "파트+카테고리(최종)별":
-                display_cols = ["시간표시", "파트", "카테고리(최종)", value_col]
-            elif group_option == "파트+KPI용카테고리별":
-                display_cols = ["시간표시", "파트", "KPI용카테고리", value_col]
-            else:
-                display_cols = ["시간표시", group_col, value_col]
-            
+        elif group_option == "플랜트+업체별":
+            display_cols = ["시간표시", "플랜트", "공급업체명", metric_name]
             st.dataframe(
                 time_df[display_cols], 
                 hide_index=True, 
                 use_container_width=True,
                 column_config={
-                    value_col: st.column_config.NumberColumn(
-                        value_col_title,
-                        format=value_format
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.0f"
+                    )
+                }
+            )
+        elif group_option == "파트+카테고리(최종)별":
+            display_cols = ["시간표시", "파트", "카테고리(최종)", metric_name]
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.0f"
+                    )
+                }
+            )
+        elif group_option == "파트+KPI용카테고리별":
+            display_cols = ["시간표시", "파트", "KPI용카테고리", metric_name]
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.0f"
+                    )
+                }
+            )
+        else:
+            display_cols = ["시간표시", group_col, metric_name]
+            st.dataframe(
+                time_df[display_cols], 
+                hide_index=True, 
+                use_container_width=True,
+                column_config={
+                    metric_name: st.column_config.NumberColumn(
+                        metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
+                        format="%.0f"
                     )
                 }
             )
@@ -832,88 +777,67 @@ if df is not None and not df.empty:
                 "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             
-            # **비중 모드에 따른 데이터 및 축 설정**
-            if display_mode == "비중(%)" and group_col_name:
-                # 비중 모드: 송장금액_백만원_비중, 송장수량_천EA_비중 사용
-                amount_col = "송장금액_백만원_비중"
-                quantity_col = "송장수량_천EA_비중"
-                amount_title = "송장금액 비중 (%)"
-                quantity_title = "송장수량 비중 (%)"
+            # 툴팁 설정
+            tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
+            if group_col_name:
+                tooltip_cols.insert(1, f"{group_col_name}:N")
+            
+            # **누적 막대를 위한 축 범위 계산 개선**
+            if group_col_name:
+                # 그룹별 데이터인 경우 시간별 누적값 계산
+                stacked_amounts = data.groupby(time_name)['송장금액_백만원'].sum()
+                max_stacked_amount = stacked_amounts.max() if not stacked_amounts.empty else 100
+            else:
+                # 전체 데이터인 경우
+                max_stacked_amount = data['송장금액_백만원'].max() if not data.empty else 100
+            
+            # 송장수량 범위 계산 (꺾은선을 누적막대 상단에 배치) - 개선된 축 설정
+            non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
+            if not non_zero_quantities.empty:
+                max_quantity = non_zero_quantities.max()
+                # 최댓값을 10단위로 반올림 (깔끔한 축 표시)
+                import math
+                max_quantity_rounded = math.ceil(max_quantity / 10) * 10
                 
-                # 비중 모드에서는 0~100% 범위로 고정
-                max_amount = 100
-                expanded_max_amount = 120  # 20% 여유공간
+                # 누적막대 최대값의 120% 지점을 꺾은선 시작점으로 설정
+                line_start_point = max_stacked_amount * 1.2
+                # 송장수량의 전체 범위를 상단 영역에 배치
+                line_height = max_stacked_amount * 0.6  # 누적막대 높이의 60%를 꺾은선 영역으로
+                min_quantity = 0  # 최솟값을 0으로 고정
                 
-                # 송장수량 비중도 0~100% 범위
-                max_quantity_rounded = 100
-                line_start_point = max_amount * 1.1  # 110% 지점부터 시작
-                line_height = max_amount * 0.3  # 30% 높이 영역
+                # 0부터 반올림된 최댓값까지의 범위를 line_height에 매핑
+                expanded_max_quantity = line_start_point + line_height
+                
+                # 데이터 변환을 위한 스케일링 팩터 계산 (0~max_quantity_rounded를 line_start_point~expanded_max_quantity로 변환)
+                if max_quantity_rounded > 0:
+                    quantity_scale_factor = line_height / max_quantity_rounded
+                    quantity_offset = line_start_point
+                else:
+                    quantity_scale_factor = 1
+                    quantity_offset = line_start_point
+            else:
+                max_quantity_rounded = 50
+                line_start_point = max_stacked_amount * 1.2
+                min_quantity = 0  # 최솟값을 0으로 고정
+                line_height = max_stacked_amount * 0.6
                 expanded_max_quantity = line_start_point + line_height
                 quantity_scale_factor = line_height / max_quantity_rounded
                 quantity_offset = line_start_point
                 
-                # 레이블 포맷
-                amount_label_format = '.0f'
-                quantity_label_format = '.0f'
-                amount_label_suffix = '%'
-                quantity_label_suffix = '%'
-            else:
-                # 실제값 모드: 기존 로직 사용
-                amount_col = "송장금액_백만원"
-                quantity_col = "송장수량_천EA"
-                amount_title = "송장금액(백만원)"
-                quantity_title = "송장수량(천EA)"
-                
-                # 기존 축 범위 계산 로직
-                if group_col_name:
-                    stacked_amounts = data.groupby(time_name)[amount_col].sum()
-                    max_amount = stacked_amounts.max() if not stacked_amounts.empty else 100
-                else:
-                    max_amount = data[amount_col].max() if not data.empty else 100
-                
-                expanded_max_amount = max_amount * 1.5
-                
-                # 송장수량 범위 계산
-                non_zero_quantities = data[data[quantity_col] > 0][quantity_col]
-                if not non_zero_quantities.empty:
-                    max_quantity = non_zero_quantities.max()
-                    import math
-                    max_quantity_rounded = math.ceil(max_quantity / 10) * 10
-                    line_start_point = max_amount * 1.2
-                    line_height = max_amount * 0.6
-                    expanded_max_quantity = line_start_point + line_height
-                    quantity_scale_factor = line_height / max_quantity_rounded
-                    quantity_offset = line_start_point
-                else:
-                    max_quantity_rounded = 50
-                    line_start_point = max_amount * 1.2
-                    line_height = max_amount * 0.6
-                    expanded_max_quantity = line_start_point + line_height
-                    quantity_scale_factor = line_height / max_quantity_rounded
-                    quantity_offset = line_start_point
-                
-                # 레이블 포맷
-                amount_label_format = '.0f'
-                quantity_label_format = '.0f'
-                amount_label_suffix = ''
-                quantity_label_suffix = ''
-            
-            # 툴팁 설정
-            tooltip_cols = ["시간표시:N", f"{amount_col}:Q", f"{quantity_col}:Q"]
-            if group_col_name:
-                tooltip_cols.insert(1, f"{group_col_name}:N")
+            # 송장금액 범위는 누적값 기준으로 설정
+            expanded_max_amount = max_stacked_amount * 1.5  # 20% 여유공간
             
             # 송장수량 데이터를 상단 영역으로 변환
             data = data.copy()
-            data['송장수량_변환'] = data[quantity_col] * quantity_scale_factor + quantity_offset
+            data['송장수량_변환'] = data['송장수량_천EA'] * quantity_scale_factor + quantity_offset
             
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
                 left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size).encode(
                     x=x_encoding,
-                    y=alt.Y(f'{amount_col}:Q', 
-                           title=amount_title, 
+                    y=alt.Y('송장금액_백만원:Q', 
+                           title='송장금액(백만원)', 
                            axis=alt.Axis(
                                orient='left', 
                                titleColor='steelblue', 
@@ -935,8 +859,8 @@ if df is not None and not df.empty:
                 # 전체 데이터 막대차트 (누적 없음)
                 left_chart = alt.Chart(data).mark_bar(opacity=0.7, size=bar_size).encode(
                     x=x_encoding,
-                    y=alt.Y(f'{amount_col}:Q', 
-                           title=amount_title, 
+                    y=alt.Y('송장금액_백만원:Q', 
+                           title='송장금액(백만원)', 
                            axis=alt.Axis(
                                orient='left', 
                                titleColor='steelblue', 
@@ -961,7 +885,7 @@ if df is not None and not df.empty:
                 ).encode(
                     x=x_encoding,
                     y=alt.Y('송장수량_변환:Q', 
-                           title=quantity_title, 
+                           title='송장수량(천EA)', 
                            axis=alt.Axis(
                                orient='right', 
                                titleColor='red', 
@@ -971,10 +895,10 @@ if df is not None and not df.empty:
                                labelPadding=15,
                                titlePadding=20,
                                offset=5,
-                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor})) + "{quantity_label_suffix}"'
+                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor}))'
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
-                           scale=alt.Scale(domain=[0, expanded_max_quantity])),
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     color=alt.Color(f"{group_col_name}:N"),
                     tooltip=tooltip_cols
                 ).properties(**chart_props)
@@ -986,7 +910,7 @@ if df is not None and not df.empty:
                 ).encode(
                     x=x_encoding,
                     y=alt.Y('송장수량_변환:Q', 
-                           title=quantity_title, 
+                           title='송장수량(천EA)', 
                            axis=alt.Axis(
                                orient='right', 
                                titleColor='red', 
@@ -996,17 +920,18 @@ if df is not None and not df.empty:
                                labelPadding=15,
                                titlePadding=20,
                                offset=5,
-                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor})) + "{quantity_label_suffix}"'
+                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor}))'
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
-                           scale=alt.Scale(domain=[0, expanded_max_quantity])),
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     color=alt.value('red'),
                     tooltip=tooltip_cols
                 ).properties(**chart_props)
             
-            # **데이터 레이블 개선 - 비중 모드 지원**
+            # **데이터 레이블 개선**
             if group_col_name:
-                # 누적 막대의 각 세그먼트에 레이블 표시
+                # 누적 막대의 각 세그먼트에 레이블 표시 - 정확한 중점 계산
+                # 먼저 누적 데이터의 중점을 계산하기 위해 데이터를 변환
                 segment_data = data.copy()
                 segment_data = segment_data.sort_values([time_name, group_col_name])
                 
@@ -1017,13 +942,13 @@ if df is not None and not df.empty:
                     cumsum = 0
                     for _, row in time_group.iterrows():
                         start_y = cumsum
-                        end_y = cumsum + row[amount_col]
+                        end_y = cumsum + row['송장금액_백만원']
                         mid_y = (start_y + end_y) / 2  # 중점 계산
                         
                         cumulative_data.append({
                             time_name: time_val,
                             group_col_name: row[group_col_name],
-                            amount_col: row[amount_col],
+                            '송장금액_백만원': row['송장금액_백만원'],
                             'mid_y': mid_y  # 중점 위치
                         })
                         cumsum = end_y
@@ -1039,27 +964,27 @@ if df is not None and not df.empty:
                            axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
-                        alt.datum[amount_col] >= (20 if display_mode == "실제값" else 5),  # 비중 모드에서는 5% 이상만 표시
-                        alt.Text(f'{amount_col}:Q', format=f'{amount_label_format}{amount_label_suffix}'),
+                        alt.datum.송장금액_백만원 >= 20,  # 20 이상인 경우만 표시 (가독성 개선)
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
                     ),
                     order=alt.Order(f"{group_col_name}:N", sort='ascending')
                 ).properties(**chart_props)
                 
                 # 전체 누적값도 상단에 표시
-                stacked_totals = data.groupby(time_name)[amount_col].sum().reset_index()
+                stacked_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
                 stacked_totals[time_name] = pd.to_datetime(stacked_totals[time_name]) if time_unit == "월별" else stacked_totals[time_name]
                 
                 bar_text = alt.Chart(stacked_totals).mark_text(
                     dy=-8, fontSize=10, fontWeight='bold', color='steelblue'
                 ).encode(
                     x=x_encoding.copy(),
-                    y=alt.Y(f'{amount_col}:Q', 
+                    y=alt.Y('송장금액_백만원:Q', 
                            axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
-                        alt.datum[amount_col] > 0,
-                        alt.Text(f'{amount_col}:Q', format=f'{amount_label_format}{amount_label_suffix}'),
+                        alt.datum.송장금액_백만원 > 0,
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
                     )
                 ).properties(**chart_props)
@@ -1067,12 +992,12 @@ if df is not None and not df.empty:
                 # 전체 데이터 막대 레이블
                 bar_text = alt.Chart(data).mark_text(dy=-8, fontSize=10, fontWeight='bold').encode(
                     x=x_encoding,
-                    y=alt.Y(f'{amount_col}:Q', 
+                    y=alt.Y('송장금액_백만원:Q', 
                            axis=None,
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
-                        alt.datum[amount_col] > 0,
-                        alt.Text(f'{amount_col}:Q', format=f'{amount_label_format}{amount_label_suffix}'),
+                        alt.datum.송장금액_백만원 > 0,
+                        alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
                     ),
                     color=alt.value('black')
@@ -1086,10 +1011,10 @@ if df is not None and not df.empty:
                     x=x_encoding,
                     y=alt.Y('송장수량_변환:Q', 
                            axis=None,
-                           scale=alt.Scale(domain=[0, expanded_max_quantity])),
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     text=alt.condition(
-                        alt.datum[quantity_col] > 0,
-                        alt.Text(f'{quantity_col}:Q', format=f'{quantity_label_format}{quantity_label_suffix}'),
+                        alt.datum.송장수량_천EA > 0,
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
                         alt.value('')
                     ),
                     color=alt.Color(f"{group_col_name}:N")
@@ -1101,10 +1026,10 @@ if df is not None and not df.empty:
                     x=x_encoding,
                     y=alt.Y('송장수량_변환:Q', 
                            axis=None,
-                           scale=alt.Scale(domain=[0, expanded_max_quantity])),
+                           scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     text=alt.condition(
-                        alt.datum[quantity_col] > 0,
-                        alt.Text(f'{quantity_col}:Q', format=f'{quantity_label_format}{quantity_label_suffix}'),
+                        alt.datum.송장수량_천EA > 0,
+                        alt.Text('송장수량_천EA:Q', format='.0f'),
                         alt.value('')
                     ),
                     color=alt.value('red')
@@ -1119,7 +1044,7 @@ if df is not None and not df.empty:
                     bar_text,      # 막대차트 총합 레이블
                     line_text      # 꺾은선차트 레이블
                 ).resolve_scale(y='independent').properties(
-                    title=f"구매 데이터 추이 - {unit_text} ({'비중(%)' if display_mode == '비중(%)' else '실제값'})",
+                    title=f"구매 데이터 추이 - {unit_text}",
                     padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
                 )
             else:
@@ -1129,134 +1054,21 @@ if df is not None and not df.empty:
                     bar_text,     # 막대차트 레이블
                     line_text     # 꺾은선차트 레이블
                 ).resolve_scale(y='independent').properties(
-                    title=f"구매 데이터 추이 - {unit_text} ({'비중(%)' if display_mode == '비중(%)' else '실제값'})",
+                    title=f"구매 데이터 추이 - {unit_text}",
                     padding={"left": 100, "top": 40, "right": 100, "bottom": 50}
                 )
             
             return combined_chart.add_params(click)
 
-        # **누적 막대차트 생성 함수 추가**
-        def create_stacked_bar_chart(data, group_col_name, value_col):
-            # 데이터 포인트 수에 따른 동적 막대 두께 계산
-            data_points = len(data[time_name].unique()) if not data.empty else 1
-            bar_size = max(20, min(80, 150 - data_points * 8))
-            
-            chart_props = {
-                "height": 500,
-                "width": max(400, data_points * 100)
-            }
-            
-            # **비중 모드에 따른 설정**
-            if display_mode == "비중(%)" and group_col_name:
-                y_col = f"{value_col}_비중"
-                y_title = f"{value_col.replace('_', ' ')} 비중 (%)"
-                label_format = '.0f'
-                label_suffix = '%'
-                
-                # 100% 스택이므로 0~100 범위
-                y_scale = alt.Scale(domain=[0, 100])
-            else:
-                y_col = value_col
-                y_title = y_title
-                label_format = '.0f'
-                label_suffix = ''
-                
-                # 실제값 범위 계산
-                max_val = data.groupby(time_name)[value_col].sum().max() if not data.empty else 100
-                y_scale = alt.Scale(domain=[0, max_val * 1.1])
-            
-            # 툴팁 설정
-            tooltip_cols = ["시간표시:N", f"{group_col_name}:N", f"{y_col}:Q"]
-            
-            # 누적 막대차트
-            base_chart = alt.Chart(data).mark_bar(size=bar_size).encode(
-                x=x_encoding,
-                y=alt.Y(f'{y_col}:Q', 
-                       title=y_title,
-                       scale=y_scale,
-                       stack='zero'),
-                color=alt.Color(f"{group_col_name}:N", 
-                               legend=alt.Legend(title=group_col_name, orient='right')),
-                tooltip=tooltip_cols,
-                order=alt.Order(f"{group_col_name}:N", sort='ascending')
-            ).properties(**chart_props)
-            
-            # 데이터 레이블 - 누적 막대의 중점에 표시
-            segment_data = data.copy()
-            segment_data = segment_data.sort_values([time_name, group_col_name])
-            
-            cumulative_data = []
-            for time_val in segment_data[time_name].unique():
-                time_group = segment_data[segment_data[time_name] == time_val]
-                cumsum = 0
-                for _, row in time_group.iterrows():
-                    start_y = cumsum
-                    end_y = cumsum + row[y_col]
-                    mid_y = (start_y + end_y) / 2
-                    
-                    cumulative_data.append({
-                        time_name: time_val,
-                        group_col_name: row[group_col_name],
-                        y_col: row[y_col],
-                        'mid_y': mid_y
-                    })
-                    cumsum = end_y
-            
-            mid_point_df = pd.DataFrame(cumulative_data)
-            
-            text_chart = alt.Chart(mid_point_df).mark_text(
-                dy=0, fontSize=9, fontWeight='bold', color='white'
-            ).encode(
-                x=x_encoding,
-                y=alt.Y('mid_y:Q', 
-                       axis=None,
-                       scale=y_scale),
-                text=alt.condition(
-                    alt.datum[y_col] >= (15 if display_mode == "실제값" else 3),  # 임계값 설정
-                    alt.Text(f'{y_col}:Q', format=f'{label_format}{label_suffix}'),
-                    alt.value('')
-                ),
-                order=alt.Order(f"{group_col_name}:N", sort='ascending')
-            ).properties(**chart_props)
-            
-            # 총합 레이블
-            totals_data = data.groupby(time_name)[y_col].sum().reset_index()
-            totals_data[time_name] = pd.to_datetime(totals_data[time_name]) if time_unit == "월별" else totals_data[time_name]
-            
-            total_text = alt.Chart(totals_data).mark_text(
-                dy=-8, fontSize=10, fontWeight='bold', color='black'
-            ).encode(
-                x=x_encoding.copy(),
-                y=alt.Y(f'{y_col}:Q', 
-                       axis=None,
-                       scale=y_scale),
-                text=alt.condition(
-                    alt.datum[y_col] > 0,
-                    alt.Text(f'{y_col}:Q', format=f'{label_format}{label_suffix}'),
-                    alt.value('')
-                )
-            ).properties(**chart_props)
-            
-            stacked_chart = alt.layer(
-                base_chart,
-                text_chart,
-                total_text
-            ).properties(
-                title=f"구매 데이터 추이 - {unit_text} ({'비중(%)' if display_mode == '비중(%)' else '실제값'})",
-                padding={"left": 80, "top": 40, "right": 120, "bottom": 50}
-            )
-            
-            return stacked_chart.add_params(click)
-
-        # **차트 생성 로직 개선**
         if is_combined:
             # 복합 차트 처리
             if group_option == "전체":
                 chart = create_combined_chart(time_df)
+            elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
+                chart = create_combined_chart(time_df, group_col)
             else:
                 chart = create_combined_chart(time_df, group_col)
         elif group_option == "전체":
-            # 전체 데이터 - 꺾은선 그래프만
             base = alt.Chart(time_df)
             line = base.mark_line(point=alt.OverlayMarkDef(size=100)).encode(
                 x=x_encoding,
@@ -1273,63 +1085,82 @@ if df is not None and not df.empty:
                 )
             )
             chart = (line + text).add_params(click)
+        elif group_option == "플랜트+업체별":
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
+                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.condition(
+                    f"datum.{metric_name} > 0",
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color("플랜트_업체:N")
+            )
+            chart = (line + text).add_params(click)
+        elif group_option == "파트+카테고리(최종)별":
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
+                tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.condition(
+                    f"datum.{metric_name} > 0",
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color("파트_카테고리:N")
+            )
+            chart = (line + text).add_params(click)
+        elif group_option == "파트+KPI용카테고리별":
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
+                tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.condition(
+                    f"datum.{metric_name} > 0",
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color("파트_KPI카테고리:N")
+            )
+            chart = (line + text).add_params(click)
         else:
-            # **그룹별 단일 지표 - 차트 타입에 따른 분기**
-            if chart_type == "누적 막대그래프":
-                # 누적 막대차트 생성
-                chart = create_stacked_bar_chart(time_df, group_col, metric_name)
-            else:
-                # 꺾은선 그래프 생성 (기존 로직)
-                # 비중 모드에 따른 Y축 컬럼 선택
-                if display_mode == "비중(%)" and group_option != "전체":
-                    y_col = f"{metric_name}_비중"
-                    y_axis_title = f"{metric_name.replace('_', ' ')} 비중 (%)"
-                    text_format = '.0f'
-                    text_suffix = '%'
-                else:
-                    y_col = metric_name
-                    y_axis_title = y_title
-                    text_format = '.0f'
-                    text_suffix = ''
-                
-                # 툴팁 설정
-                if group_option == "플랜트+업체별":
-                    tooltip_cols = ["시간표시:N", "플랜트:O", "공급업체명:N", f"{y_col}:Q"]
-                elif group_option == "파트+카테고리(최종)별":
-                    tooltip_cols = ["시간표시:N", "파트:N", "카테고리(최종):N", f"{y_col}:Q"]
-                elif group_option == "파트+KPI용카테고리별":
-                    tooltip_cols = ["시간표시:N", "파트:N", "KPI용카테고리:N", f"{y_col}:Q"]
-                else:
-                    tooltip_cols = ["시간표시:N", f"{group_col}:N", f"{y_col}:Q"]
-                
-                # 그룹 컬럼 설정
-                if group_option == "플랜트+업체별":
-                    color_col = "플랜트_업체"
-                elif group_option == "파트+카테고리(최종)별":
-                    color_col = "파트_카테고리"
-                elif group_option == "파트+KPI용카테고리별":
-                    color_col = "파트_KPI카테고리"
-                else:
-                    color_col = group_col
-                
-                base = alt.Chart(time_df)
-                line = base.mark_line(point=True).encode(
-                    x=x_encoding,
-                    y=alt.Y(f"{y_col}:Q", title=y_axis_title),
-                    color=alt.Color(f"{color_col}:N", title=color_col),
-                    tooltip=tooltip_cols
-                )
-                text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
-                    x=x_encoding,
-                    y=alt.Y(f"{y_col}:Q"),
-                    text=alt.condition(
-                        f"datum.{y_col} > 0",
-                        alt.Text(f"{y_col}:Q", format=f'{text_format}{text_suffix}'),
-                        alt.value('')
-                    ),
-                    color=alt.Color(f"{color_col}:N")
-                )
-                chart = (line + text).add_params(click)
+            base = alt.Chart(time_df)
+            line = base.mark_line(point=True).encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                color=alt.Color(f"{group_col}:N", title=group_col),
+                tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
+            )
+            text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
+                x=x_encoding,
+                y=alt.Y(f"{metric_name}:Q"),
+                text=alt.condition(
+                    f"datum.{metric_name} > 0",
+                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.value('')
+                ),
+                color=alt.Color(f"{group_col}:N")
+            )
+            chart = (line + text).add_params(click)
         
         # 차트 표시 및 클릭 이벤트 처리
         event = st.altair_chart(chart, use_container_width=True, key="main_chart")
@@ -1704,11 +1535,7 @@ if df is not None and not df.empty:
                     st.write("2. 선택된 필터 조건을 확인해보세요")
                     st.write("3. 데이터 파일에 해당 기간의 데이터가 있는지 확인해보세요")
         
-    # **단위 표시 개선**
-    if display_mode == "비중(%)":
-        st.caption(f"단위: 비중(%) - 각 시점별 전체 대비 비중")
-    else:
-        st.caption(f"단위: {unit_text}")
+    st.caption(f"단위: {unit_text}")
 
     if suppliers_all:
         # 안전한 업체별 구매 현황 쿼리

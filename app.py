@@ -322,20 +322,43 @@ if df is not None and not df.empty:
     if kpi_categories_all and sel_kpi_categories:
         clauses.append(f"KPI용카테고리 IN ({sql_list_str(sel_kpi_categories)})")
     
-    # 자재 검색 조건 추가 (하단 검색과 전역 연동)
+    # 자재 검색 조건 추가 (하단 검색과 전역 연동) - 다중 필터 지원
     material_search_conditions = []
     material_name_search = st.session_state.global_material_name_search
     material_code_search = st.session_state.global_material_code_search
     
+    # 자재명 다중 검색 처리 (OR 조건)
     if material_name_search and material_name_search.strip():
-        enhanced_name_patt = enhance_pattern(material_name_search.strip())
-        material_search_conditions.append(f"자재명 ILIKE '{enhanced_name_patt}'")
+        name_patterns = []
+        # 쉼표, 개행, 세미콜론으로 분리하여 다중 검색어 처리
+        name_terms = [term.strip() for term in material_name_search.replace('\n', ',').replace(';', ',').split(',') if term.strip()]
+        for term in name_terms:
+            enhanced_name_patt = enhance_pattern(term)
+            name_patterns.append(f"자재명 ILIKE '{enhanced_name_patt}'")
+        
+        if name_patterns:
+            name_clause = " OR ".join(name_patterns)
+            material_search_conditions.append(f"({name_clause})")
+    
+    # 자재코드 다중 검색 처리 (OR 조건, 엑셀 복사 지원)
     if material_code_search and material_code_search.strip():
-        enhanced_code_patt = enhance_pattern(material_code_search.strip())
-        material_search_conditions.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+        code_patterns = []
+        # 쉼표, 개행, 탭, 세미콜론으로 분리하여 다중 검색어 처리 (엑셀 복사 대응)
+        code_terms = [term.strip() for term in material_code_search.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
+        for term in code_terms:
+            # 숫자인 경우 정확 매치, 패턴인 경우 LIKE 검색
+            if term.isdigit():
+                code_patterns.append(f"CAST(자재 AS VARCHAR) = '{term}'")
+            else:
+                enhanced_code_patt = enhance_pattern(term)
+                code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+        
+        if code_patterns:
+            code_clause = " OR ".join(code_patterns)
+            material_search_conditions.append(f"({code_clause})")
     
     if material_search_conditions:
-        # 자재 검색 조건을 AND로 연결 (둘 다 입력된 경우)
+        # 자재명과 자재코드 검색 조건을 AND로 연결 (둘 다 입력된 경우)
         material_clause = " AND ".join(material_search_conditions)
         clauses.append(f"({material_clause})")
 
@@ -389,11 +412,19 @@ if df is not None and not df.empty:
             kpi_text += f" 외 {len(sel_kpi_categories)-3}개"
         active_filters.append(f"KPI카테고리: {kpi_text}")
     
-    # 자재 검색 필터 (하단 검색과 연동)
+    # 자재 검색 필터 (하단 검색과 연동) - 다중 검색 표시
     if material_name_search and material_name_search.strip():
-        active_filters.append(f"자재명: {material_name_search}")
+        name_terms = [term.strip() for term in material_name_search.replace('\n', ',').replace(';', ',').split(',') if term.strip()]
+        if len(name_terms) > 1:
+            active_filters.append(f"🔍 자재명: {len(name_terms)}개 조건")
+        else:
+            active_filters.append(f"🔍 자재명: {name_terms[0]}")
     if material_code_search and material_code_search.strip():
-        active_filters.append(f"자재코드: {material_code_search}")
+        code_terms = [term.strip() for term in material_code_search.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
+        if len(code_terms) > 1:
+            active_filters.append(f"📊 자재코드: {len(code_terms)}개 조건")
+        else:
+            active_filters.append(f"📊 자재코드: {code_terms[0]}")
     
     # 활성 필터 표시
     if active_filters:
@@ -1560,25 +1591,43 @@ if df is not None and not df.empty:
             )
 
     st.markdown("---")
-    st.header("자재 검색 (와일드카드 * 사용 가능)")
+    st.header("자재 검색 (다중 필터 지원)")
     
     # 전역 연동 안내
     st.info("**여기서 입력한 검색 조건이 위의 모든 차트와 분석에 자동 적용됩니다!**")
     
+    # 사용법 안내
+    with st.expander("💡 다중 검색 사용법", expanded=False):
+        st.markdown("""
+        **자재명 검색:**
+        - 여러 검색어를 쉼표(,) 또는 줄바꿈으로 구분하여 입력
+        - OR 조건으로 검색 (하나라도 일치하면 검색됨)
+        - 와일드카드(*) 사용 가능
+        - 예시: `*퍼퓸*, *로션*, *크림*`
+        
+        **자재코드 검색:**
+        - 여러 코드를 쉼표(,), 줄바꿈, 탭으로 구분하여 입력
+        - 엑셀에서 복사한 데이터를 그대로 붙여넣기 가능
+        - 숫자는 정확 매치, 패턴은 와일드카드(*) 사용
+        - 예시: `1234567, 2345678` 또는 엑셀 복사 붙여넣기
+        """)
+    
     col1, col2, col3 = st.columns([4, 4, 2])
     with col1:
-        material_name_patt = st.text_input(
-            "자재명 패턴", 
-            placeholder="예) *퍼퓸*1L*",
+        material_name_patt = st.text_area(
+            "자재명 다중 검색", 
+            placeholder="예시:\n*퍼퓸*, *로션*\n또는\n*퍼퓸*\n*로션*\n*크림*",
             value=st.session_state.global_material_name_search,
-            key="material_name_input"
+            key="material_name_input",
+            height=100
         )
     with col2:
-        material_code_patt = st.text_input(
-            "자재코드 패턴", 
-            placeholder="예) *1234567*",
+        material_code_patt = st.text_area(
+            "자재코드 다중 검색", 
+            placeholder="예시:\n1234567, 2345678\n또는 엑셀 복사 붙여넣기",
             value=st.session_state.global_material_code_search,
-            key="material_code_input"
+            key="material_code_input",
+            height=100
         )
     with col3:
         st.write("")  # 여백
@@ -1595,32 +1644,69 @@ if df is not None and not df.empty:
         st.session_state.global_material_code_search = material_code_patt
         st.rerun()
     
-    # 검색 활성화 상태 표시
+    # 검색 활성화 상태 표시 - 다중 검색 정보 표시
     if material_name_patt or material_code_patt:
         st.success("**자재 검색이 활성화되었습니다!** 위의 모든 분석이 이 조건으로 필터링됩니다.")
         search_info = []
+        
         if material_name_patt:
-            search_info.append(f"자재명: {material_name_patt}")
+            name_terms = [term.strip() for term in material_name_patt.replace('\n', ',').replace(';', ',').split(',') if term.strip()]
+            if len(name_terms) > 1:
+                search_info.append(f"자재명: {len(name_terms)}개 조건 (OR)")
+            else:
+                search_info.append(f"자재명: {name_terms[0]}")
+                
         if material_code_patt:
-            search_info.append(f"자재코드: {material_code_patt}")
+            code_terms = [term.strip() for term in material_code_patt.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
+            if len(code_terms) > 1:
+                search_info.append(f"자재코드: {len(code_terms)}개 조건 (OR)")
+            else:
+                search_info.append(f"자재코드: {code_terms[0]}")
+        
         st.caption(f"적용된 검색 조건: {' | '.join(search_info)}")
     else:
         st.info("검색 조건을 입력하면 전체 대시보드가 해당 자재로 필터링됩니다.")
 
 
-    # 검색 조건 생성
+    # 검색 조건 생성 - 다중 검색 지원
     search_conditions = []
     search_info = []
     
+    # 자재명 다중 검색 처리 (OR 조건)
     if material_name_patt:
-        enhanced_name_patt = enhance_pattern(material_name_patt)
-        search_conditions.append(f"자재명 ILIKE '{enhanced_name_patt}'")
-        search_info.append(f"자재명: {material_name_patt}")
+        name_patterns = []
+        name_terms = [term.strip() for term in material_name_patt.replace('\n', ',').replace(';', ',').split(',') if term.strip()]
+        for term in name_terms:
+            enhanced_name_patt = enhance_pattern(term)
+            name_patterns.append(f"자재명 ILIKE '{enhanced_name_patt}'")
+        
+        if name_patterns:
+            name_clause = " OR ".join(name_patterns)
+            search_conditions.append(f"({name_clause})")
+            if len(name_terms) > 1:
+                search_info.append(f"자재명: {len(name_terms)}개 조건")
+            else:
+                search_info.append(f"자재명: {name_terms[0]}")
     
+    # 자재코드 다중 검색 처리 (OR 조건, 엑셀 복사 지원)
     if material_code_patt:
-        enhanced_code_patt = enhance_pattern(material_code_patt)
-        search_conditions.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
-        search_info.append(f"자재코드: {material_code_patt}")
+        code_patterns = []
+        code_terms = [term.strip() for term in material_code_patt.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
+        for term in code_terms:
+            # 숫자인 경우 정확 매치, 패턴인 경우 LIKE 검색
+            if term.isdigit():
+                code_patterns.append(f"CAST(자재 AS VARCHAR) = '{term}'")
+            else:
+                enhanced_code_patt = enhance_pattern(term)
+                code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+        
+        if code_patterns:
+            code_clause = " OR ".join(code_patterns)
+            search_conditions.append(f"({code_clause})")
+            if len(code_terms) > 1:
+                search_info.append(f"자재코드: {len(code_terms)}개 조건")
+            else:
+                search_info.append(f"자재코드: {code_terms[0]}")
 
     if search_conditions:
         # AND 조건으로 검색 (둘 다 입력된 경우) 또는 개별 조건

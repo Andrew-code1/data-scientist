@@ -440,7 +440,7 @@ if df is not None and not df.empty:
         st.info("**전체 데이터** 표시 중 (필터 없음)")
     
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         metric_option = st.selectbox(
             "표시할 지표",
@@ -458,6 +458,13 @@ if df is not None and not df.empty:
             "집계 단위",
             ["월별", "연도별"],
             key="time_unit_select"
+        )
+    with col4:
+        show_percentage = st.checkbox(
+            "비중 표시",
+            value=False,
+            key="show_percentage",
+            help="각 시점의 값을 전체 시계열 합계 대비 비중(%)으로 표시"
         )
 
     if metric_option == "송장금액":
@@ -765,7 +772,7 @@ if df is not None and not df.empty:
             )
 
         # 복합 차트 생성 함수 (이중축) - 누적막대 + 심미적 개선
-        def create_combined_chart(data, group_col_name=None):
+        def create_combined_chart(data, group_col_name=None, is_percentage=False):
             # 데이터 포인트 수에 따른 동적 막대 두께 계산
             data_points = len(data[time_name].unique()) if not data.empty else 1
             # 2개월이면 두껍게, 12개월이면 적당하게
@@ -778,9 +785,22 @@ if df is not None and not df.empty:
             }
             
             # 툴팁 설정
-            tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
-            if group_col_name:
-                tooltip_cols.insert(1, f"{group_col_name}:N")
+            if is_percentage:
+                tooltip_cols = ["시간표시:N"]
+                if group_col_name:
+                    tooltip_cols.append(f"{group_col_name}:N")
+                
+                # 비중 표시 시 원본값과 비중 모두 표시
+                tooltip_cols.extend([
+                    "송장금액_백만원_원본:Q",
+                    "송장금액_백만원:Q",
+                    "송장수량_천EA_원본:Q", 
+                    "송장수량_천EA:Q"
+                ])
+            else:
+                tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
+                if group_col_name:
+                    tooltip_cols.insert(1, f"{group_col_name}:N")
             
             # **누적 막대를 위한 축 범위 계산 개선**
             if group_col_name:
@@ -831,6 +851,17 @@ if df is not None and not df.empty:
             data = data.copy()
             data['송장수량_변환'] = data['송장수량_천EA'] * quantity_scale_factor + quantity_offset
             
+            # **누적 막대차트 순서 설정** - 가장 큰 금액 기준 내림차순 정렬
+            group_order = None
+            if group_col_name:
+                # 각 그룹의 총 합계 계산
+                group_totals = data.groupby(group_col_name)['송장금액_백만원'].sum().sort_values(ascending=False)
+                group_order = group_totals.index.tolist()
+                
+                # 데이터에 순서 정보 추가 (역순으로 하여 가장 큰 값이 아래쪽에 쌓이도록)
+                group_order_dict = {group: len(group_order) - i for i, group in enumerate(group_order)}
+                data['_group_order'] = data[group_col_name].map(group_order_dict)
+            
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
@@ -853,7 +884,7 @@ if df is not None and not df.empty:
                     color=alt.Color(f"{group_col_name}:N", 
                                    legend=alt.Legend(title=group_col_name, orient='right')),
                     tooltip=tooltip_cols,
-                    order=alt.Order(f"{group_col_name}:N", sort='ascending')  # 누적 순서 일관성
+                    order=alt.Order('_group_order:O', sort='ascending')  # 가장 큰 금액 기준 아래에서부터 누적
                 ).properties(**chart_props)
             else:
                 # 전체 데이터 막대차트 (누적 없음)
@@ -968,7 +999,7 @@ if df is not None and not df.empty:
                         alt.Text('송장금액_백만원:Q', format='.0f'),
                         alt.value('')
                     ),
-                    order=alt.Order(f"{group_col_name}:N", sort='ascending')
+                    order=alt.Order('_group_order:O', sort='ascending')
                 ).properties(**chart_props)
                 
                 # 전체 누적값도 상단에 표시
@@ -1060,20 +1091,84 @@ if df is not None and not df.empty:
             
             return combined_chart.add_params(click)
 
+        # **비중 표시 옵션 처리**
+        if show_percentage:
+            time_df_percentage = time_df.copy()
+            
+            if group_option == "전체":
+                # 전체 데이터인 경우 각 시점의 값을 전체 시계열 합계로 나누어 비중 계산
+                total_sum = time_df_percentage[metric_name].sum()
+                if total_sum > 0:
+                    time_df_percentage[f'{metric_name}_원본'] = time_df_percentage[metric_name]
+                    time_df_percentage[metric_name] = (time_df_percentage[metric_name] / total_sum * 100).round(0)
+                    time_df_percentage[f'{metric_name}_비중'] = time_df_percentage[metric_name].astype(int)
+            else:
+                # 그룹별 데이터인 경우 각 시점별로 그룹들의 합계 대비 비중 계산
+                time_df_percentage[f'{metric_name}_원본'] = time_df_percentage[metric_name]
+                
+                # 시점별 총합 계산
+                time_totals = time_df_percentage.groupby(time_name)[metric_name].sum()
+                
+                # 각 행에 대해 해당 시점의 총합으로 나누어 비중 계산
+                def calc_percentage(row):
+                    time_total = time_totals[row[time_name]]
+                    if time_total > 0:
+                        return round(row[metric_name] / time_total * 100)
+                    else:
+                        return 0
+                
+                time_df_percentage[metric_name] = time_df_percentage.apply(calc_percentage, axis=1)
+                time_df_percentage[f'{metric_name}_비중'] = time_df_percentage[metric_name].astype(int)
+                
+            # 복합 차트의 경우 송장수량도 비중으로 변환
+            if is_combined and '송장수량_천EA' in time_df_percentage.columns:
+                if group_option == "전체":
+                    total_quantity = time_df_percentage['송장수량_천EA'].sum()
+                    if total_quantity > 0:
+                        time_df_percentage['송장수량_천EA_원본'] = time_df_percentage['송장수량_천EA']
+                        time_df_percentage['송장수량_천EA'] = (time_df_percentage['송장수량_천EA'] / total_quantity * 100).round(0)
+                        time_df_percentage['송장수량_천EA_비중'] = time_df_percentage['송장수량_천EA'].astype(int)
+                else:
+                    time_df_percentage['송장수량_천EA_원본'] = time_df_percentage['송장수량_천EA']
+                    quantity_totals = time_df_percentage.groupby(time_name)['송장수량_천EA'].sum()
+                    
+                    def calc_quantity_percentage(row):
+                        time_total = quantity_totals[row[time_name]]
+                        if time_total > 0:
+                            return round(row['송장수량_천EA'] / time_total * 100)
+                        else:
+                            return 0
+                    
+                    time_df_percentage['송장수량_천EA'] = time_df_percentage.apply(calc_quantity_percentage, axis=1)
+                    time_df_percentage['송장수량_천EA_비중'] = time_df_percentage['송장수량_천EA'].astype(int)
+                    
+            time_df = time_df_percentage
+            
+            # 비중 표시 시 단위 텍스트 및 y축 제목 업데이트
+            if metric_option == "송장금액":
+                unit_text = "%"
+                y_title = "송장금액 비중 (%)"
+            elif metric_option == "송장수량":
+                unit_text = "%"
+                y_title = "송장수량 비중 (%)"
+            else:  # 송장금액+송장수량
+                unit_text = "송장금액(%) / 송장수량(%)"
+                y_title = "송장금액 비중 (%)"
+
         if is_combined:
             # 복합 차트 처리
             if group_option == "전체":
-                chart = create_combined_chart(time_df)
+                chart = create_combined_chart(time_df, is_percentage=show_percentage)
             elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
-                chart = create_combined_chart(time_df, group_col)
+                chart = create_combined_chart(time_df, group_col, is_percentage=show_percentage)
             else:
-                chart = create_combined_chart(time_df, group_col)
+                chart = create_combined_chart(time_df, group_col, is_percentage=show_percentage)
         elif group_option == "전체":
             base = alt.Chart(time_df)
             line = base.mark_line(point=alt.OverlayMarkDef(size=100)).encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
-                tooltip=["시간표시:N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", f"{metric_name}_원본:Q", f"{metric_name}:Q"] if show_percentage else ["시간표시:N", f"{metric_name}:Q"]
             )
             text = base.mark_text(dy=-15, fontSize=11, fontWeight='bold', color='darkblue').encode(
                 x=x_encoding,
@@ -1091,7 +1186,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
-                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}_원본:Q", f"{metric_name}:Q"] if show_percentage else ["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
             )
             text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
@@ -1110,7 +1205,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 color=alt.Color("파트_카테고리:N", title="파트_카테고리"),
-                tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}_원본:Q", f"{metric_name}:Q"] if show_percentage else ["시간표시:N", "파트:N", "카테고리(최종):N", f"{metric_name}:Q"]
             )
             text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
@@ -1129,7 +1224,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 color=alt.Color("파트_KPI카테고리:N", title="파트_KPI카테고리"),
-                tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}_원본:Q", f"{metric_name}:Q"] if show_percentage else ["시간표시:N", "파트:N", "KPI용카테고리:N", f"{metric_name}:Q"]
             )
             text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
@@ -1148,7 +1243,7 @@ if df is not None and not df.empty:
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q", title=y_title),
                 color=alt.Color(f"{group_col}:N", title=group_col),
-                tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}_원본:Q", f"{metric_name}:Q"] if show_percentage else ["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
             )
             text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,

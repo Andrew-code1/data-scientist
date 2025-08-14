@@ -440,7 +440,7 @@ if df is not None and not df.empty:
         st.info("**전체 데이터** 표시 중 (필터 없음)")
     
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         metric_option = st.selectbox(
             "표시할 지표",
@@ -458,6 +458,12 @@ if df is not None and not df.empty:
             "집계 단위",
             ["월별", "연도별"],
             key="time_unit_select"
+        )
+    with col4:
+        show_percentage = st.checkbox(
+            "비중(%)",
+            help="각 시점의 값을 해당 시점 합계 대비 비중(%)으로 표시",
+            key="show_percentage"
         )
 
     if metric_option == "송장금액":
@@ -765,7 +771,7 @@ if df is not None and not df.empty:
             )
 
         # 복합 차트 생성 함수 (이중축) - 누적막대 + 심미적 개선
-        def create_combined_chart(data, group_col_name=None):
+        def create_combined_chart(data, group_col_name=None, show_percentage=False):
             # 데이터 포인트 수에 따른 동적 막대 두께 계산
             data_points = len(data[time_name].unique()) if not data.empty else 1
             # 2개월이면 두껍게, 12개월이면 적당하게
@@ -777,13 +783,37 @@ if df is not None and not df.empty:
                 "width": max(400, data_points * 80)  # 최소 400px, 데이터 포인트당 80px
             }
             
-            # 툴팁 설정
-            tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
-            if group_col_name:
-                tooltip_cols.insert(1, f"{group_col_name}:N")
+            # 백분율 계산 (비중 옵션이 활성화된 경우)
+            if show_percentage and group_col_name:
+                # 각 시점별 총합 계산
+                time_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
+                time_totals.columns = [time_name, '시점별_총합']
+                
+                # 원본 데이터에 시점별 총합 조인
+                data_with_totals = data.merge(time_totals, on=time_name)
+                
+                # 백분율 계산
+                data_with_totals['송장금액_백분율'] = (data_with_totals['송장금액_백만원'] / data_with_totals['시점별_총합'] * 100).round(1)
+                
+                # 백분율 표시용 컬럼 추가
+                data = data_with_totals.copy()
+                
+                # 툴팁에 백분율 추가
+                tooltip_cols = ["시간표시:N", "송장금액_백분율:Q"]
+                if group_col_name:
+                    tooltip_cols.insert(1, f"{group_col_name}:N")
+                tooltip_cols.extend(["송장수량_천EA:Q"])
+            else:
+                # 툴팁 설정 (일반)
+                tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
+                if group_col_name:
+                    tooltip_cols.insert(1, f"{group_col_name}:N")
             
             # **누적 막대를 위한 축 범위 계산 개선**
-            if group_col_name:
+            if show_percentage and group_col_name:
+                # 백분율 모드에서는 항상 100%가 최대값
+                max_stacked_amount = 100
+            elif group_col_name:
                 # 그룹별 데이터인 경우 시간별 누적값 계산
                 stacked_amounts = data.groupby(time_name)['송장금액_백만원'].sum()
                 max_stacked_amount = stacked_amounts.max() if not stacked_amounts.empty else 100
@@ -834,10 +864,17 @@ if df is not None and not df.empty:
             # **누적 막대차트** - 왼쪽 축만 표시
             if group_col_name:
                 # 그룹별 누적 막대차트
+                if show_percentage:
+                    y_field = '송장금액_백분율:Q'
+                    y_title = '비중(%)'
+                else:
+                    y_field = '송장금액_백만원:Q'
+                    y_title = '송장금액(백만원)'
+                    
                 left_chart = alt.Chart(data).mark_bar(opacity=0.8, size=bar_size).encode(
                     x=x_encoding,
-                    y=alt.Y('송장금액_백만원:Q', 
-                           title='송장금액(백만원)', 
+                    y=alt.Y(y_field, 
+                           title=y_title, 
                            axis=alt.Axis(
                                orient='left', 
                                titleColor='steelblue', 
@@ -941,14 +978,21 @@ if df is not None and not df.empty:
                     time_group = segment_data[segment_data[time_name] == time_val]
                     cumsum = 0
                     for _, row in time_group.iterrows():
-                        start_y = cumsum
-                        end_y = cumsum + row['송장금액_백만원']
+                        if show_percentage:
+                            value_field = row['송장금액_백분율']
+                            start_y = cumsum
+                            end_y = cumsum + value_field
+                        else:
+                            value_field = row['송장금액_백만원']
+                            start_y = cumsum
+                            end_y = cumsum + value_field
                         mid_y = (start_y + end_y) / 2  # 중점 계산
                         
                         cumulative_data.append({
                             time_name: time_val,
                             group_col_name: row[group_col_name],
                             '송장금액_백만원': row['송장금액_백만원'],
+                            '송장금액_백분율': row.get('송장금액_백분율', 0),
                             'mid_y': mid_y  # 중점 위치
                         })
                         cumsum = end_y
@@ -956,20 +1000,36 @@ if df is not None and not df.empty:
                 # 중점 데이터를 DataFrame으로 변환
                 mid_point_df = pd.DataFrame(cumulative_data)
                 
-                segment_text = alt.Chart(mid_point_df).mark_text(
-                    dy=0, fontSize=9, fontWeight='bold', color='white'
-                ).encode(
-                    x=x_encoding,
-                    y=alt.Y('mid_y:Q', 
-                           axis=None,
-                           scale=alt.Scale(domain=[0, expanded_max_amount])),
-                    text=alt.condition(
-                        alt.datum.송장금액_백만원 >= 20,  # 20 이상인 경우만 표시 (가독성 개선)
-                        alt.Text('송장금액_백만원:Q', format='.0f'),
-                        alt.value('')
-                    ),
-                    order=alt.Order(f"{group_col_name}:N", sort='ascending')
-                ).properties(**chart_props)
+                if show_percentage:
+                    segment_text = alt.Chart(mid_point_df).mark_text(
+                        dy=0, fontSize=9, fontWeight='bold', color='white'
+                    ).encode(
+                        x=x_encoding,
+                        y=alt.Y('mid_y:Q', 
+                               axis=None,
+                               scale=alt.Scale(domain=[0, expanded_max_amount])),
+                        text=alt.condition(
+                            alt.datum.송장금액_백분율 >= 5,  # 5% 이상인 경우만 표시 (가독성 개선)
+                            alt.Text('송장금액_백분율:Q', format='.1f'),
+                            alt.value('')
+                        ),
+                        order=alt.Order(f"{group_col_name}:N", sort='ascending')
+                    ).properties(**chart_props)
+                else:
+                    segment_text = alt.Chart(mid_point_df).mark_text(
+                        dy=0, fontSize=9, fontWeight='bold', color='white'
+                    ).encode(
+                        x=x_encoding,
+                        y=alt.Y('mid_y:Q', 
+                               axis=None,
+                               scale=alt.Scale(domain=[0, expanded_max_amount])),
+                        text=alt.condition(
+                            alt.datum.송장금액_백만원 >= 20,  # 20 이상인 경우만 표시 (가독성 개선)
+                            alt.Text('송장금액_백만원:Q', format='.0f'),
+                            alt.value('')
+                        ),
+                        order=alt.Order(f"{group_col_name}:N", sort='ascending')
+                    ).properties(**chart_props)
                 
                 # 전체 누적값도 상단에 표시
                 stacked_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
@@ -1063,11 +1123,11 @@ if df is not None and not df.empty:
         if is_combined:
             # 복합 차트 처리
             if group_option == "전체":
-                chart = create_combined_chart(time_df)
+                chart = create_combined_chart(time_df, show_percentage=show_percentage)
             elif group_option in ["플랜트+업체별", "파트+카테고리(최종)별", "파트+KPI용카테고리별"]:
-                chart = create_combined_chart(time_df, group_col)
+                chart = create_combined_chart(time_df, group_col, show_percentage=show_percentage)
             else:
-                chart = create_combined_chart(time_df, group_col)
+                chart = create_combined_chart(time_df, group_col, show_percentage=show_percentage)
         elif group_option == "전체":
             base = alt.Chart(time_df)
             line = base.mark_line(point=alt.OverlayMarkDef(size=100)).encode(

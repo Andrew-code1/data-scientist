@@ -325,12 +325,9 @@ if df is not None and not df.empty:
         # 쉼표, 개행, 탭, 세미콜론으로 분리하여 다중 검색어 처리 (엑셀 복사 대응)
         code_terms = [term.strip() for term in material_code_search.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
         for term in code_terms:
-            # 숫자인 경우 정확 매치, 패턴인 경우 LIKE 검색
-            if term.isdigit():
-                code_patterns.append(f"CAST(자재 AS VARCHAR) = '{term}'")
-            else:
-                enhanced_code_patt = enhance_pattern(term)
-                code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+            # 자재명과 동일한 로직: 모든 경우에 enhance_pattern 적용 (와일드카드 자동 추가)
+            enhanced_code_patt = enhance_pattern(term)
+            code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
         
         if code_patterns:
             code_clause = " OR ".join(code_patterns)
@@ -1536,12 +1533,9 @@ if df is not None and not df.empty:
         code_patterns = []
         code_terms = [term.strip() for term in material_code_patt.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
         for term in code_terms:
-            # 숫자인 경우 정확 매치, 패턴인 경우 LIKE 검색
-            if term.isdigit():
-                code_patterns.append(f"CAST(자재 AS VARCHAR) = '{term}'")
-            else:
-                enhanced_code_patt = enhance_pattern(term)
-                code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
+            # 자재명과 동일한 로직: 모든 경우에 enhance_pattern 적용 (와일드카드 자동 추가)
+            enhanced_code_patt = enhance_pattern(term)
+            code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
         
         if code_patterns:
             code_clause = " OR ".join(code_patterns)

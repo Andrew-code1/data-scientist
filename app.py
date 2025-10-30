@@ -1446,8 +1446,149 @@ if df is not None and not df.empty:
             )
 
     st.markdown("---")
+    st.header("미마감 자재 확인")
+
+    with st.expander("미마감 자재 조회", expanded=False):
+        st.write("**입력한 자재코드 중 현재 데이터에 없는 자재코드를 확인합니다.**")
+
+        unclosed_material_input = st.text_area(
+            "자재코드 입력 (쉼표, 개행, 탭으로 구분)",
+            placeholder="예시:\n1234567, 2345678, 3456789\n또는 엑셀에서 복사 붙여넣기",
+            key="unclosed_material_input",
+            height=100
+        )
+
+        if st.button("미마감 자재 조회", type="primary", key="unclosed_check_btn"):
+            if unclosed_material_input.strip():
+                # 입력된 자재코드 파싱 (쉼표, 개행, 탭으로 구분)
+                input_codes = [code.strip() for code in unclosed_material_input.replace('\n', ',').replace('\t', ',').split(',') if code.strip()]
+
+                if input_codes:
+                    # 현재 데이터에 있는 자재코드 조회
+                    existing_codes_df = con.execute("""
+                        SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드, 자재명
+                        FROM data
+                    """).fetchdf()
+
+                    existing_codes_set = set(existing_codes_df['자재코드'].astype(str))
+
+                    # 미마감 자재코드 필터링 (데이터에 없는 것)
+                    unclosed_codes = [code for code in input_codes if code not in existing_codes_set]
+
+                    if unclosed_codes:
+                        st.warning(f"**미마감 자재: {len(unclosed_codes)}건 발견**")
+
+                        # 미마감 자재코드 데이터프레임 생성
+                        unclosed_df = pd.DataFrame({
+                            '자재코드': unclosed_codes,
+                            '자재명': ['데이터 없음'] * len(unclosed_codes)
+                        })
+
+                        st.dataframe(
+                            unclosed_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                        # CSV 다운로드
+                        st.download_button(
+                            "미마감 자재 CSV 다운로드",
+                            unclosed_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                            file_name="unclosed_materials.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.success("✅ 모든 자재코드가 데이터에 존재합니다 (미마감 자재 없음)")
+
+                    # 참고: 마감된 자재 정보
+                    closed_codes = [code for code in input_codes if code in existing_codes_set]
+                    if closed_codes:
+                        st.info(f"참고: 마감된 자재 {len(closed_codes)}건")
+                else:
+                    st.warning("자재코드를 입력해주세요.")
+            else:
+                st.warning("자재코드를 입력해주세요.")
+
+    st.markdown("---")
+    st.header("🛑 단종 점검")
+
+    with st.expander("단종 점검 조회", expanded=False):
+        st.write("**자재코드를 입력하면 해당 자재의 업체 정보를 조회합니다.**")
+
+        discontinue_material_input = st.text_area(
+            "자재코드 입력 (쉼표, 개행, 탭으로 구분)",
+            placeholder="예시:\n1234567, 2345678\n또는 엑셀에서 복사 붙여넣기",
+            key="discontinue_material_input",
+            height=100
+        )
+
+        if st.button("단종 점검 조회", type="primary", key="discontinue_check_btn"):
+            if discontinue_material_input.strip():
+                # 입력된 자재코드 파싱
+                input_codes = [code.strip() for code in discontinue_material_input.replace('\n', ',').replace('\t', ',').split(',') if code.strip()]
+
+                if input_codes:
+                    # SQL IN 절을 위한 자재코드 리스트 생성
+                    codes_for_query = sql_list_str(input_codes)
+
+                    # 자재코드별 업체 정보 조회 (중복 제거)
+                    supplier_code_select = ""
+                    if "공급업체코드" in df.columns:
+                        supplier_code_select = """
+                            CASE
+                                WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
+                                ELSE 공급업체코드
+                            END AS 업체코드,
+                        """
+
+                    discontinue_df = con.execute(f"""
+                        SELECT DISTINCT
+                            CAST(자재 AS VARCHAR) AS 자재코드,
+                            자재명,
+                            {supplier_code_select}
+                            공급업체명 AS 업체명
+                        FROM data
+                        WHERE CAST(자재 AS VARCHAR) IN ({codes_for_query})
+                        ORDER BY 자재코드, 업체명
+                    """).fetchdf()
+
+                    if not discontinue_df.empty:
+                        st.success(f"**{len(discontinue_df)}건의 자재-업체 조합을 찾았습니다!**")
+
+                        # 자재코드별 업체 수 요약
+                        material_supplier_count = discontinue_df.groupby('자재코드').size().reset_index(name='업체수')
+                        multi_supplier_materials = material_supplier_count[material_supplier_count['업체수'] > 1]
+
+                        if not multi_supplier_materials.empty:
+                            st.info(f"참고: {len(multi_supplier_materials)}개 자재가 2개 이상의 업체와 거래 중입니다.")
+
+                        # 결과 표시
+                        st.dataframe(
+                            discontinue_df,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                        # CSV 다운로드
+                        st.download_button(
+                            "단종 점검 결과 CSV 다운로드",
+                            discontinue_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                            file_name="discontinue_check_results.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.warning("입력한 자재코드에 해당하는 데이터가 없습니다.")
+                        st.info("해결 방법:")
+                        st.write("1. 자재코드가 정확한지 확인해주세요")
+                        st.write("2. 현재 선택된 기간과 필터에 해당 자재가 포함되어 있는지 확인해주세요")
+                else:
+                    st.warning("자재코드를 입력해주세요.")
+            else:
+                st.warning("자재코드를 입력해주세요.")
+
+    st.markdown("---")
     st.header("자재 검색 (다중 필터 지원)")
-    
+
     # 전역 연동 안내
     st.info("**여기서 입력한 검색 조건이 위의 모든 차트와 분석에 자동 적용됩니다!**")
     

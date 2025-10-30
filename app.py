@@ -1510,7 +1510,7 @@ if df is not None and not df.empty:
                 st.warning("자재코드를 입력해주세요.")
 
     st.markdown("---")
-    st.header("🛑 단종 점검")
+    st.header("단종 점검")
 
     with st.expander("단종 점검 조회", expanded=False):
         st.write("**자재코드를 입력하면 해당 자재의 업체 정보를 조회합니다.**")

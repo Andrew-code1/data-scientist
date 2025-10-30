@@ -1569,38 +1569,44 @@ if df is not None and not df.empty:
                     # SQL IN 절을 위한 자재코드 리스트 생성
                     codes_for_query = sql_list_str(input_codes)
 
-                    # 자재코드별 업체 정보 조회 (중복 제거)
+                    # 자재코드별 업체 정보 조회 (자재코드+업체코드 조합 중복 제거)
                     # 공급업체코드 컬럼이 있으면 포함, 없으면 제외
                     if "공급업체코드" in df.columns:
                         discontinue_df = con.execute(f"""
-                            SELECT DISTINCT
+                            SELECT
                                 CAST(자재 AS VARCHAR) AS 자재코드,
-                                자재명,
-                                CASE
-                                    WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                                    ELSE CAST(공급업체코드 AS VARCHAR)
-                                END AS 업체코드,
-                                공급업체명 AS 업체명
+                                MAX(자재명) AS 자재명,
+                                CAST(공급업체코드 AS VARCHAR) AS 업체코드,
+                                MAX(공급업체명) AS 업체명
                             FROM data
                             WHERE TRIM(CAST(자재 AS VARCHAR)) IN ({codes_for_query})
+                            GROUP BY 자재코드, 공급업체코드
                             ORDER BY 자재코드, 업체명
                         """).fetchdf()
                     else:
                         discontinue_df = con.execute(f"""
-                            SELECT DISTINCT
+                            SELECT
                                 CAST(자재 AS VARCHAR) AS 자재코드,
-                                자재명,
-                                공급업체명 AS 업체명
+                                MAX(자재명) AS 자재명,
+                                MAX(공급업체명) AS 업체명
                             FROM data
                             WHERE TRIM(CAST(자재 AS VARCHAR)) IN ({codes_for_query})
+                            GROUP BY 자재코드, 공급업체명
                             ORDER BY 자재코드, 업체명
                         """).fetchdf()
 
+                    # 입력 자재코드와 조회된 자재코드 비교
                     if not discontinue_df.empty:
-                        # 조회된 자재코드 확인
                         found_codes = set(discontinue_df['자재코드'].astype(str).str.strip())
-                        not_found_codes = [code for code in input_codes if code not in found_codes]
+                    else:
+                        found_codes = set()
 
+                    # 입력 자재코드 정규화 (공백 제거, 대소문자 통일은 불필요)
+                    normalized_input_codes = [code.strip() for code in input_codes]
+                    not_found_codes = [code for code in normalized_input_codes if code not in found_codes]
+
+                    # 조회된 결과가 있으면 표시
+                    if not discontinue_df.empty:
                         st.success(f"**{len(discontinue_df)}건의 자재-업체 조합을 찾았습니다!**")
 
                         # 자재코드별 업체 수 요약
@@ -1625,22 +1631,23 @@ if df is not None and not df.empty:
                             mime="text/csv",
                         )
 
-                        # 데이터에 없는 자재코드가 있으면 표시
-                        if not_found_codes:
-                            st.warning(f"**데이터에 없는 자재코드: {len(not_found_codes)}건**")
-                            not_found_df = pd.DataFrame({
-                                '자재코드': not_found_codes,
-                                '상태': ['데이터 없음'] * len(not_found_codes)
-                            })
-                            with st.expander("데이터에 없는 자재코드 보기", expanded=False):
-                                st.dataframe(
-                                    not_found_df,
-                                    use_container_width=True,
-                                    hide_index=True
-                                )
-                    else:
-                        st.warning("입력한 자재코드에 해당하는 데이터가 없습니다.")
-                        st.info("해결 방법:")
+                    # 데이터에 없는 자재코드 표시 (조회 결과 유무와 상관없이 항상 확인)
+                    if not_found_codes:
+                        st.warning(f"**데이터에 없는 자재코드: {len(not_found_codes)}건**")
+                        not_found_df = pd.DataFrame({
+                            '자재코드': not_found_codes,
+                            '상태': ['데이터 없음'] * len(not_found_codes)
+                        })
+                        with st.expander("데이터에 없는 자재코드 보기", expanded=False):
+                            st.dataframe(
+                                not_found_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                    # 모든 입력 자재가 데이터에 없는 경우 추가 안내
+                    if discontinue_df.empty:
+                        st.info("**해결 방법:**")
                         st.write("1. 자재코드가 정확한지 확인해주세요")
                         st.write("2. 현재 선택된 기간과 필터에 해당 자재가 포함되어 있는지 확인해주세요")
                 else:

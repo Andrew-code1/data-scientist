@@ -1644,84 +1644,80 @@ if df is not None and not df.empty:
     st.header("📋 미마감 자재 확인")
     st.info("입력한 자재코드 중 현재 데이터에서 검색되지 않는 자재를 확인합니다.")
 
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        unmatch_material_codes = st.text_area(
-            "확인할 자재코드 입력 (쉼표, 개행, 탭으로 구분)",
-            placeholder="예시:\n1234567, 2345678\n또는 엑셀 복사 붙여넣기",
-            key="unmatch_material_codes_input",
-            height=100
-        )
-    with col2:
-        st.write("")
-        st.write("")
-        if st.button("🔍 미마감 자재 확인", type="primary", key="check_unmatch_btn"):
-            if unmatch_material_codes and unmatch_material_codes.strip():
-                # 입력된 자재코드 파싱
-                input_codes = [code.strip() for code in unmatch_material_codes.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if code.strip()]
+    unmatch_material_codes = st.text_area(
+        "확인할 자재코드 입력 (쉼표, 개행, 탭으로 구분)",
+        placeholder="예시:\n1234567, 2345678\n또는 엑셀 복사 붙여넣기",
+        key="unmatch_material_codes_input",
+        height=100
+    )
 
-                if input_codes:
-                    st.write(f"입력된 자재코드: **{len(input_codes)}개**")
+    if st.button("🔍 미마감 자재 확인", type="primary", key="check_unmatch_btn"):
+        if unmatch_material_codes and unmatch_material_codes.strip():
+            # 입력된 자재코드 파싱
+            input_codes = [code.strip() for code in unmatch_material_codes.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if code.strip()]
 
-                    # 데이터에 존재하는 자재코드 조회
-                    existing_codes_query = f"""
-                    SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드
-                    FROM data
-                    {where_sql}
-                    """
-                    existing_codes_df = con.execute(existing_codes_query).fetchdf()
-                    existing_codes_set = set(existing_codes_df['자재코드'].astype(str).str.strip())
+            if input_codes:
+                st.write(f"입력된 자재코드: **{len(input_codes)}개**")
 
-                    # 미마감 자재 찾기 (데이터에 없는 자재코드)
-                    unmatched_codes = []
-                    for code in input_codes:
-                        # 정확히 일치하는 코드 확인
-                        if code not in existing_codes_set:
-                            # 부분 일치도 확인 (enhance_pattern 로직)
-                            pattern = enhance_pattern(code)
-                            match_query = f"""
-                            SELECT COUNT(*) as cnt
-                            FROM data
-                            {where_sql} AND CAST(자재 AS VARCHAR) ILIKE '{pattern}'
-                            """
-                            match_count = con.execute(match_query).fetchdf()['cnt'].iloc[0]
+                # 데이터에 존재하는 자재코드 조회
+                existing_codes_query = f"""
+                SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드
+                FROM data
+                {where_sql}
+                """
+                existing_codes_df = con.execute(existing_codes_query).fetchdf()
+                existing_codes_set = set(existing_codes_df['자재코드'].astype(str).str.strip())
 
-                            if match_count == 0:
-                                unmatched_codes.append(code)
+                # 미마감 자재 찾기 (데이터에 없는 자재코드)
+                unmatched_codes = []
+                for code in input_codes:
+                    # 정확히 일치하는 코드 확인
+                    if code not in existing_codes_set:
+                        # 부분 일치도 확인 (enhance_pattern 로직)
+                        pattern = enhance_pattern(code)
+                        match_query = f"""
+                        SELECT COUNT(*) as cnt
+                        FROM data
+                        {where_sql} AND CAST(자재 AS VARCHAR) ILIKE '{pattern}'
+                        """
+                        match_count = con.execute(match_query).fetchdf()['cnt'].iloc[0]
 
-                    # 결과 표시
-                    if unmatched_codes:
-                        st.error(f"**미마감 자재: {len(unmatched_codes)}개 발견**")
+                        if match_count == 0:
+                            unmatched_codes.append(code)
 
-                        # DataFrame으로 변환
-                        unmatch_df = pd.DataFrame({
-                            '자재코드': unmatched_codes,
-                            '상태': ['미마감'] * len(unmatched_codes)
-                        })
+                # 결과 표시
+                if unmatched_codes:
+                    st.error(f"**미마감 자재: {len(unmatched_codes)}개 발견**")
 
-                        st.dataframe(unmatch_df, use_container_width=True, hide_index=True)
+                    # DataFrame으로 변환
+                    unmatch_df = pd.DataFrame({
+                        '자재코드': unmatched_codes,
+                        '상태': ['미마감'] * len(unmatched_codes)
+                    })
 
-                        # CSV 다운로드
-                        st.download_button(
-                            "미마감 자재 CSV 다운로드",
-                            unmatch_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
-                            file_name="unmatched_materials.csv",
-                            mime="text/csv",
-                        )
-                    else:
-                        st.success("✅ 모든 자재코드가 데이터에 존재합니다!")
-                        st.write(f"입력된 {len(input_codes)}개 자재코드가 모두 확인되었습니다.")
+                    st.dataframe(unmatch_df, use_container_width=True, hide_index=True)
+
+                    # CSV 다운로드
+                    st.download_button(
+                        "미마감 자재 CSV 다운로드",
+                        unmatch_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                        file_name="unmatched_materials.csv",
+                        mime="text/csv",
+                    )
                 else:
-                    st.warning("자재코드를 입력해주세요.")
+                    st.success("✅ 모든 자재코드가 데이터에 존재합니다!")
+                    st.write(f"입력된 {len(input_codes)}개 자재코드가 모두 확인되었습니다.")
             else:
                 st.warning("자재코드를 입력해주세요.")
+        else:
+            st.warning("자재코드를 입력해주세요.")
 
     # 자재 점검 (단종 점검) 섹션
     st.markdown("---")
     st.header("🔧 자재 점검 (단종 점검)")
     st.info("검색된 자재의 공급업체 정보를 중복 제거하여 표시합니다. (월별 정보 제외)")
 
-    col1, col2, col3 = st.columns([4, 4, 2])
+    col1, col2 = st.columns(2)
     with col1:
         check_material_name = st.text_area(
             "자재명 검색",
@@ -1736,97 +1732,95 @@ if df is not None and not df.empty:
             key="check_material_code_input",
             height=100
         )
-    with col3:
-        st.write("")
-        st.write("")
-        if st.button("🔍 단종 점검", type="primary", key="check_material_btn"):
-            # 검색 조건 생성
-            check_conditions = []
-            check_info = []
 
-            # 자재명 검색
-            if check_material_name and check_material_name.strip():
-                name_patterns = []
-                name_terms = [term.strip() for term in check_material_name.replace('\n', ',').replace(';', ',').split(',') if term.strip()]
-                for term in name_terms:
-                    enhanced_patt = enhance_pattern(term)
-                    name_patterns.append(f"자재명 ILIKE '{enhanced_patt}'")
+    if st.button("🔍 단종 점검", type="primary", key="check_material_btn"):
+        # 검색 조건 생성
+        check_conditions = []
+        check_info = []
 
-                if name_patterns:
-                    name_clause = " OR ".join(name_patterns)
-                    check_conditions.append(f"({name_clause})")
-                    check_info.append(f"자재명: {len(name_terms)}개 조건")
+        # 자재명 검색
+        if check_material_name and check_material_name.strip():
+            name_patterns = []
+            name_terms = [term.strip() for term in check_material_name.replace('\n', ',').replace(';', ',').split(',') if term.strip()]
+            for term in name_terms:
+                enhanced_patt = enhance_pattern(term)
+                name_patterns.append(f"자재명 ILIKE '{enhanced_patt}'")
 
-            # 자재코드 검색
-            if check_material_code and check_material_code.strip():
-                code_patterns = []
-                code_terms = [term.strip() for term in check_material_code.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
-                for term in code_terms:
-                    enhanced_patt = enhance_pattern(term)
-                    code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_patt}'")
+            if name_patterns:
+                name_clause = " OR ".join(name_patterns)
+                check_conditions.append(f"({name_clause})")
+                check_info.append(f"자재명: {len(name_terms)}개 조건")
 
-                if code_patterns:
-                    code_clause = " OR ".join(code_patterns)
-                    check_conditions.append(f"({code_clause})")
-                    check_info.append(f"자재코드: {len(code_terms)}개 조건")
+        # 자재코드 검색
+        if check_material_code and check_material_code.strip():
+            code_patterns = []
+            code_terms = [term.strip() for term in check_material_code.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if term.strip()]
+            for term in code_terms:
+                enhanced_patt = enhance_pattern(term)
+                code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_patt}'")
 
-            if check_conditions:
-                check_where = " AND ".join(check_conditions)
+            if code_patterns:
+                code_clause = " OR ".join(code_patterns)
+                check_conditions.append(f"({code_clause})")
+                check_info.append(f"자재코드: {len(code_terms)}개 조건")
 
-                # 중복 제거된 자재-업체 조합 조회
-                check_supplier_code_select = ""
-                if "공급업체코드" in df.columns:
-                    check_supplier_code_select = """
-                           CASE
-                               WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                               ELSE 공급업체코드
-                           END AS 업체코드,
-                    """
+        if check_conditions:
+            check_where = " AND ".join(check_conditions)
 
-                check_query = f"""
-                SELECT DISTINCT
-                       자재 AS 자재코드,
-                       자재명,
-                       {check_supplier_code_select}
-                       공급업체명 AS 업체명
-                FROM data
-                {where_sql} AND ({check_where})
-                ORDER BY 자재코드, 업체명
+            # 중복 제거된 자재-업체 조합 조회
+            check_supplier_code_select = ""
+            if "공급업체코드" in df.columns:
+                check_supplier_code_select = """
+                       CASE
+                           WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
+                           ELSE 공급업체코드
+                       END AS 업체코드,
                 """
 
-                check_df = con.execute(check_query).fetchdf()
+            check_query = f"""
+            SELECT DISTINCT
+                   자재 AS 자재코드,
+                   자재명,
+                   {check_supplier_code_select}
+                   공급업체명 AS 업체명
+            FROM data
+            {where_sql} AND ({check_where})
+            ORDER BY 자재코드, 업체명
+            """
 
-                # 결과 표시
-                if not check_df.empty:
-                    check_info_text = ", ".join(check_info)
-                    st.success(f"**검색 결과: {len(check_df):,}건** (중복 제거됨)")
-                    st.write(f"검색 조건: {check_info_text}")
+            check_df = con.execute(check_query).fetchdf()
 
-                    # 자재코드 개수 및 업체 개수 요약
-                    unique_materials = check_df['자재코드'].nunique()
-                    unique_suppliers = check_df['업체명'].nunique()
+            # 결과 표시
+            if not check_df.empty:
+                check_info_text = ", ".join(check_info)
+                st.success(f"**검색 결과: {len(check_df):,}건** (중복 제거됨)")
+                st.write(f"검색 조건: {check_info_text}")
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("고유 자재 수", f"{unique_materials:,}개")
-                    with col2:
-                        st.metric("관련 업체 수", f"{unique_suppliers:,}개")
+                # 자재코드 개수 및 업체 개수 요약
+                unique_materials = check_df['자재코드'].nunique()
+                unique_suppliers = check_df['업체명'].nunique()
 
-                    st.subheader("단종 점검 결과")
-                    st.dataframe(
-                        check_df,
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("고유 자재 수", f"{unique_materials:,}개")
+                with col2:
+                    st.metric("관련 업체 수", f"{unique_suppliers:,}개")
 
-                    # CSV 다운로드
-                    st.download_button(
-                        "단종 점검 결과 CSV 다운로드",
-                        check_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
-                        file_name="material_check_results.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.warning("검색 조건에 맞는 자재가 없습니다.")
+                st.subheader("단종 점검 결과")
+                st.dataframe(
+                    check_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # CSV 다운로드
+                st.download_button(
+                    "단종 점검 결과 CSV 다운로드",
+                    check_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                    file_name="material_check_results.csv",
+                    mime="text/csv",
+                )
             else:
-                st.warning("자재명 또는 자재코드를 입력해주세요.")
+                st.warning("검색 조건에 맞는 자재가 없습니다.")
+        else:
+            st.warning("자재명 또는 자재코드를 입력해주세요.")

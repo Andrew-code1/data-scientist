@@ -1464,16 +1464,19 @@ if df is not None and not df.empty:
                 input_codes = [code.strip() for code in unclosed_material_input.replace('\n', ',').replace('\t', ',').split(',') if code.strip()]
 
                 if input_codes:
-                    # 현재 데이터에 있는 자재코드 조회
+                    # 현재 데이터에 있는 자재코드만 조회 (DISTINCT)
                     existing_codes_df = con.execute("""
-                        SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드, 자재명
+                        SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드
                         FROM data
                     """).fetchdf()
 
-                    existing_codes_set = set(existing_codes_df['자재코드'].astype(str))
+                    existing_codes_set = set(existing_codes_df['자재코드'].astype(str).str.strip())
+
+                    # 입력 코드도 문자열로 변환하고 공백 제거
+                    input_codes_cleaned = [str(code).strip() for code in input_codes]
 
                     # 미마감 자재코드 필터링 (데이터에 없는 것)
-                    unclosed_codes = [code for code in input_codes if code not in existing_codes_set]
+                    unclosed_codes = [code for code in input_codes_cleaned if code not in existing_codes_set]
 
                     if unclosed_codes:
                         st.warning(f"**미마감 자재: {len(unclosed_codes)}건 발견**")
@@ -1481,7 +1484,7 @@ if df is not None and not df.empty:
                         # 미마감 자재코드 데이터프레임 생성
                         unclosed_df = pd.DataFrame({
                             '자재코드': unclosed_codes,
-                            '자재명': ['데이터 없음'] * len(unclosed_codes)
+                            '상태': ['데이터 없음 (미마감)'] * len(unclosed_codes)
                         })
 
                         st.dataframe(
@@ -1500,17 +1503,46 @@ if df is not None and not df.empty:
                     else:
                         st.success("✅ 모든 자재코드가 데이터에 존재합니다 (미마감 자재 없음)")
 
-                    # 참고: 마감된 자재 정보
-                    closed_codes = [code for code in input_codes if code in existing_codes_set]
+                    # 참고: 마감된 자재 상세 정보
+                    closed_codes = [code for code in input_codes_cleaned if code in existing_codes_set]
                     if closed_codes:
-                        st.info(f"참고: 마감된 자재 {len(closed_codes)}건")
+                        st.info(f"**마감된 자재: {len(closed_codes)}건**")
+
+                        # 마감된 자재의 상세 정보 조회
+                        codes_for_query = sql_list_str(closed_codes)
+
+                        closed_detail_df = con.execute(f"""
+                            SELECT DISTINCT
+                                CAST(자재 AS VARCHAR) AS 자재코드,
+                                자재명,
+                                공급업체명
+                            FROM data
+                            WHERE CAST(자재 AS VARCHAR) IN ({codes_for_query})
+                            ORDER BY 자재코드, 공급업체명
+                        """).fetchdf()
+
+                        with st.expander("마감된 자재 상세 정보 보기", expanded=False):
+                            st.dataframe(
+                                closed_detail_df,
+                                use_container_width=True,
+                                hide_index=True
+                            )
+
+                            # 자재별 업체 수 요약
+                            material_count = closed_detail_df.groupby(['자재코드', '자재명']).size().reset_index(name='거래업체수')
+                            st.write("**자재별 거래 업체 수:**")
+                            st.dataframe(
+                                material_count,
+                                use_container_width=True,
+                                hide_index=True
+                            )
                 else:
                     st.warning("자재코드를 입력해주세요.")
             else:
                 st.warning("자재코드를 입력해주세요.")
 
     st.markdown("---")
-    st.header("단종 점검")
+    st.header("🛑 단종 점검")
 
     with st.expander("단종 점검 조회", expanded=False):
         st.write("**자재코드를 입력하면 해당 자재의 업체 정보를 조회합니다.**")
@@ -1532,25 +1564,31 @@ if df is not None and not df.empty:
                     codes_for_query = sql_list_str(input_codes)
 
                     # 자재코드별 업체 정보 조회 (중복 제거)
-                    supplier_code_select = ""
+                    # 공급업체코드 컬럼이 있으면 포함, 없으면 제외
                     if "공급업체코드" in df.columns:
-                        supplier_code_select = """
-                            CASE
-                                WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
-                                ELSE 공급업체코드
-                            END AS 업체코드,
-                        """
-
-                    discontinue_df = con.execute(f"""
-                        SELECT DISTINCT
-                            CAST(자재 AS VARCHAR) AS 자재코드,
-                            자재명,
-                            {supplier_code_select}
-                            공급업체명 AS 업체명
-                        FROM data
-                        WHERE CAST(자재 AS VARCHAR) IN ({codes_for_query})
-                        ORDER BY 자재코드, 업체명
-                    """).fetchdf()
+                        discontinue_df = con.execute(f"""
+                            SELECT DISTINCT
+                                CAST(자재 AS VARCHAR) AS 자재코드,
+                                자재명,
+                                CASE
+                                    WHEN 공급업체코드 = '' OR 공급업체코드 IS NULL THEN NULL
+                                    ELSE CAST(공급업체코드 AS VARCHAR)
+                                END AS 업체코드,
+                                공급업체명 AS 업체명
+                            FROM data
+                            WHERE CAST(자재 AS VARCHAR) IN ({codes_for_query})
+                            ORDER BY 자재코드, 업체명
+                        """).fetchdf()
+                    else:
+                        discontinue_df = con.execute(f"""
+                            SELECT DISTINCT
+                                CAST(자재 AS VARCHAR) AS 자재코드,
+                                자재명,
+                                공급업체명 AS 업체명
+                            FROM data
+                            WHERE CAST(자재 AS VARCHAR) IN ({codes_for_query})
+                            ORDER BY 자재코드, 업체명
+                        """).fetchdf()
 
                     if not discontinue_df.empty:
                         st.success(f"**{len(discontinue_df)}건의 자재-업체 조합을 찾았습니다!**")

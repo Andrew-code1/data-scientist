@@ -1651,14 +1651,16 @@ if df is not None and not df.empty:
         height=100
     )
 
+    # 세션 상태 초기화
+    if 'unmatch_result' not in st.session_state:
+        st.session_state.unmatch_result = None
+
     if st.button("🔍 미마감 자재 확인", type="primary", key="check_unmatch_btn"):
         if unmatch_material_codes and unmatch_material_codes.strip():
             # 입력된 자재코드 파싱
             input_codes = [code.strip() for code in unmatch_material_codes.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if code.strip()]
 
             if input_codes:
-                st.write(f"입력된 자재코드: **{len(input_codes)}개**")
-
                 # 데이터에 존재하는 자재코드 조회
                 existing_codes_query = f"""
                 SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드
@@ -1685,32 +1687,45 @@ if df is not None and not df.empty:
                         if match_count == 0:
                             unmatched_codes.append(code)
 
-                # 결과 표시
-                if unmatched_codes:
-                    st.error(f"**미마감 자재: {len(unmatched_codes)}개 발견**")
-
-                    # DataFrame으로 변환
-                    unmatch_df = pd.DataFrame({
-                        '자재코드': unmatched_codes,
-                        '상태': ['미마감'] * len(unmatched_codes)
-                    })
-
-                    st.dataframe(unmatch_df, use_container_width=True, hide_index=True)
-
-                    # CSV 다운로드
-                    st.download_button(
-                        "미마감 자재 CSV 다운로드",
-                        unmatch_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
-                        file_name="unmatched_materials.csv",
-                        mime="text/csv",
-                    )
-                else:
-                    st.success("✅ 모든 자재코드가 데이터에 존재합니다!")
-                    st.write(f"입력된 {len(input_codes)}개 자재코드가 모두 확인되었습니다.")
+                # 결과를 세션 상태에 저장
+                st.session_state.unmatch_result = {
+                    'input_count': len(input_codes),
+                    'unmatched_codes': unmatched_codes
+                }
             else:
-                st.warning("자재코드를 입력해주세요.")
+                st.session_state.unmatch_result = {'error': '자재코드를 입력해주세요.'}
         else:
-            st.warning("자재코드를 입력해주세요.")
+            st.session_state.unmatch_result = {'error': '자재코드를 입력해주세요.'}
+
+    # 결과 표시 (세션 상태에서 가져오기)
+    if st.session_state.unmatch_result is not None:
+        result = st.session_state.unmatch_result
+
+        if 'error' in result:
+            st.warning(result['error'])
+        elif 'unmatched_codes' in result:
+            if result['unmatched_codes']:
+                st.error(f"**미마감 자재: {len(result['unmatched_codes'])}개 발견** (입력: {result['input_count']}개)")
+
+                # DataFrame으로 변환
+                unmatch_df = pd.DataFrame({
+                    '자재코드': result['unmatched_codes'],
+                    '상태': ['미마감'] * len(result['unmatched_codes'])
+                })
+
+                st.dataframe(unmatch_df, use_container_width=True, hide_index=True)
+
+                # CSV 다운로드
+                st.download_button(
+                    "미마감 자재 CSV 다운로드",
+                    unmatch_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                    file_name="unmatched_materials.csv",
+                    mime="text/csv",
+                    key="download_unmatch_csv"
+                )
+            else:
+                st.success("✅ 모든 자재코드가 데이터에 존재합니다!")
+                st.write(f"입력된 {result['input_count']}개 자재코드가 모두 확인되었습니다.")
 
     # 자재 점검 (단종 점검) 섹션
     st.markdown("---")
@@ -1732,6 +1747,10 @@ if df is not None and not df.empty:
             key="check_material_code_input",
             height=100
         )
+
+    # 세션 상태 초기화
+    if 'check_result' not in st.session_state:
+        st.session_state.check_result = None
 
     if st.button("🔍 단종 점검", type="primary", key="check_material_btn"):
         # 검색 조건 생성
@@ -1790,37 +1809,53 @@ if df is not None and not df.empty:
 
             check_df = con.execute(check_query).fetchdf()
 
-            # 결과 표시
+            # 결과를 세션 상태에 저장
             if not check_df.empty:
                 check_info_text = ", ".join(check_info)
-                st.success(f"**검색 결과: {len(check_df):,}건** (중복 제거됨)")
-                st.write(f"검색 조건: {check_info_text}")
-
-                # 자재코드 개수 및 업체 개수 요약
-                unique_materials = check_df['자재코드'].nunique()
-                unique_suppliers = check_df['업체명'].nunique()
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("고유 자재 수", f"{unique_materials:,}개")
-                with col2:
-                    st.metric("관련 업체 수", f"{unique_suppliers:,}개")
-
-                st.subheader("단종 점검 결과")
-                st.dataframe(
-                    check_df,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                # CSV 다운로드
-                st.download_button(
-                    "단종 점검 결과 CSV 다운로드",
-                    check_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
-                    file_name="material_check_results.csv",
-                    mime="text/csv",
-                )
+                st.session_state.check_result = {
+                    'check_df': check_df,
+                    'check_info_text': check_info_text
+                }
             else:
-                st.warning("검색 조건에 맞는 자재가 없습니다.")
+                st.session_state.check_result = {'error': '검색 조건에 맞는 자재가 없습니다.'}
         else:
-            st.warning("자재명 또는 자재코드를 입력해주세요.")
+            st.session_state.check_result = {'error': '자재명 또는 자재코드를 입력해주세요.'}
+
+    # 결과 표시 (세션 상태에서 가져오기)
+    if st.session_state.check_result is not None:
+        result = st.session_state.check_result
+
+        if 'error' in result:
+            st.warning(result['error'])
+        elif 'check_df' in result:
+            check_df = result['check_df']
+            check_info_text = result['check_info_text']
+
+            st.success(f"**검색 결과: {len(check_df):,}건** (중복 제거됨)")
+            st.write(f"검색 조건: {check_info_text}")
+
+            # 자재코드 개수 및 업체 개수 요약
+            unique_materials = check_df['자재코드'].nunique()
+            unique_suppliers = check_df['업체명'].nunique()
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("고유 자재 수", f"{unique_materials:,}개")
+            with col2:
+                st.metric("관련 업체 수", f"{unique_suppliers:,}개")
+
+            st.subheader("단종 점검 결과")
+            st.dataframe(
+                check_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # CSV 다운로드
+            st.download_button(
+                "단종 점검 결과 CSV 다운로드",
+                check_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
+                file_name="material_check_results.csv",
+                mime="text/csv",
+                key="download_check_csv"
+            )

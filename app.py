@@ -1641,7 +1641,7 @@ if df is not None and not df.empty:
 
     # 미마감 자재 확인 섹션
     st.markdown("---")
-    st.header("📋 미마감 자재 확인")
+    st.header("미마감 자재 확인")
     st.info("입력한 자재코드 중 현재 데이터에서 검색되지 않는 자재를 확인합니다.")
 
     unmatch_material_codes = st.text_area(
@@ -1655,7 +1655,7 @@ if df is not None and not df.empty:
     if 'unmatch_result' not in st.session_state:
         st.session_state.unmatch_result = None
 
-    if st.button("🔍 미마감 자재 확인", type="primary", key="check_unmatch_btn"):
+    if st.button("미마감 자재 확인", type="primary", key="check_unmatch_btn"):
         if unmatch_material_codes and unmatch_material_codes.strip():
             # 입력된 자재코드 파싱
             input_codes = [code.strip() for code in unmatch_material_codes.replace('\n', ',').replace('\t', ',').replace(';', ',').split(',') if code.strip()]
@@ -1729,7 +1729,7 @@ if df is not None and not df.empty:
 
     # 자재 점검 (단종 점검) 섹션
     st.markdown("---")
-    st.header("🔧 자재 점검 (단종 점검)")
+    st.header("자재 점검 (단종 점검)")
     st.info("검색된 자재의 공급업체 정보를 중복 제거하여 표시합니다. (월별 정보 제외)")
 
     col1, col2 = st.columns(2)
@@ -1752,7 +1752,7 @@ if df is not None and not df.empty:
     if 'check_result' not in st.session_state:
         st.session_state.check_result = None
 
-    if st.button("🔍 단종 점검", type="primary", key="check_material_btn"):
+    if st.button("단종 점검", type="primary", key="check_material_btn"):
         # 검색 조건 생성
         check_conditions = []
         check_info = []

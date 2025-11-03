@@ -555,11 +555,11 @@ if df is not None and not df.empty:
                 column_config={
                     "송장금액_백만원": st.column_config.NumberColumn(
                         "송장금액(백만원)",
-                        format="%.0f"
+                        format="%,.0f"
                     ),
                     "송장수량_천EA": st.column_config.NumberColumn(
                         "송장수량(천EA)",
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -572,7 +572,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -585,7 +585,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -598,7 +598,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -1265,11 +1265,11 @@ if df is not None and not df.empty:
                             column_config={
                                 "송장금액": st.column_config.NumberColumn(
                                     "송장금액",
-                                    format="%.0f"
+                                    format="%,.0f"
                                 ),
                                 "송장수량": st.column_config.NumberColumn(
                                     "송장수량", 
-                                    format="%.0f"
+                                    format="%,.0f"
                                 )
                             }
                         )
@@ -1328,15 +1328,15 @@ if df is not None and not df.empty:
                         column_config={
                             "송장금액": st.column_config.NumberColumn(
                                 "송장금액",
-                                format="%.0f"
+                                format="%,.0f"
                             ),
                             "송장수량": st.column_config.NumberColumn(
                                 "송장수량", 
-                                format="%.0f"
+                                format="%,.0f"
                             ),
                             "단가": st.column_config.NumberColumn(
                                 "단가",
-                                format="%.0f"
+                                format="%,.0f"
                             )
                         }
                     )
@@ -1428,11 +1428,11 @@ if df is not None and not df.empty:
             column_config={
                 "송장금액_백만원": st.column_config.NumberColumn(
                     "송장금액(백만원)",
-                    format="%.0f"
+                    format="%,.0f"
                 ),
                 "송장수량_천EA": st.column_config.NumberColumn(
                     "송장수량(천EA)", 
-                    format="%.0f"
+                    format="%,.0f"
                 )
             }
         )
@@ -1604,11 +1604,11 @@ if df is not None and not df.empty:
                     column_config={
                         "송장금액_백만원": st.column_config.NumberColumn(
                             "송장금액(백만원)",
-                            format="%.0f"
+                            format="%,.0f"
                         ),
                         "송장수량_천EA": st.column_config.NumberColumn(
                             "송장수량(천EA)", 
-                            format="%.0f"
+                            format="%,.0f"
                         )
                     }
                 )
@@ -1620,15 +1620,15 @@ if df is not None and not df.empty:
                 column_config={
                     "송장금액_백만원": st.column_config.NumberColumn(
                         "송장금액(백만원)",
-                        format="%.0f"
+                        format="%,.0f"
                     ),
                     "송장수량_천EA": st.column_config.NumberColumn(
                         "송장수량(천EA)", 
-                        format="%.0f"
+                        format="%,.0f"
                     ),
                     "단가": st.column_config.NumberColumn(
                         "단가",
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )

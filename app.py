@@ -12,13 +12,12 @@ st.markdown("""
 <style>
     .stSidebar .stButton > button {
         height: 2.2rem !important;
-        font-size: 0.6rem !important;
-        padding: 0.3rem 0.5rem !important;
+        font-size: 1rem !important;
+        padding: 0.2rem 0.4rem !important;
         min-height: 2.2rem !important;
+        min-width: 2.2rem !important;
         white-space: nowrap !important;
-        overflow: hidden !important;
-        text-overflow: ellipsis !important;
-        min-width: fit-content !important;
+        overflow: visible !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;

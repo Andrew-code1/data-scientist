@@ -19,6 +19,10 @@ st.markdown("""
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         min-width: fit-content !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        line-height: 1 !important;
     }
 </style>
 """, unsafe_allow_html=True)

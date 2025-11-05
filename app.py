@@ -12,12 +12,13 @@ st.markdown("""
 <style>
     .stSidebar .stButton > button {
         height: 2.2rem !important;
-        font-size: 1rem !important;
-        padding: 0.2rem 0.4rem !important;
+        font-size: 0.6rem !important;
+        padding: 0.3rem 0.5rem !important;
         min-height: 2.2rem !important;
-        min-width: 2.2rem !important;
         white-space: nowrap !important;
-        overflow: visible !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        min-width: fit-content !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
@@ -182,7 +183,7 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
-        st.button("☑", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", help="전체 선택")
+        st.button("⚫", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", help="전체 선택")
     return sel
 
 with st.sidebar:

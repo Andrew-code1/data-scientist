@@ -182,7 +182,7 @@ def multiselect_with_toggle(label: str, options: list, key_prefix: str) -> list:
     with col1:
         sel = st.multiselect(label, options, key=ms_key)
     with col2:
-        st.button("⚫", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", help="전체 선택")
+        st.button("☑", on_click=_set_all, args=(ms_key, options), key=f"{key_prefix}_all", help="전체 선택")
     return sel
 
 with st.sidebar:

@@ -2021,7 +2021,7 @@ if df is not None and not df.empty:
                         fontWeight='bold',
                         color='white'
                     ).encode(
-                        theta=alt.Theta(field="중앙값", type="quantitative"),
+                        theta=alt.Theta(field="중앙값", type="quantitative", stack=False),
                         text=alt.Text('비중:Q', format='.1f')
                     )
 

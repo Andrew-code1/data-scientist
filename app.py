@@ -23,7 +23,144 @@ st.markdown("""
         justify-content: center !important;
         line-height: 1 !important;
     }
+
+    /* 세션 타이머 스타일 */
+    .session-timer {
+        position: fixed;
+        top: 10px;
+        right: 20px;
+        z-index: 9999;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 25px;
+        font-family: 'Courier New', monospace;
+        font-size: 16px;
+        font-weight: bold;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.3s ease;
+    }
+
+    .session-timer:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .session-timer.warning {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.8; }
+    }
+
+    .timer-icon {
+        font-size: 18px;
+    }
+
+    .timer-text {
+        font-size: 14px;
+        opacity: 0.9;
+        margin-right: 5px;
+    }
 </style>
+
+<div class="session-timer" id="sessionTimer">
+    <span class="timer-icon">⏱️</span>
+    <span class="timer-text">세션:</span>
+    <span id="timerDisplay">30:00</span>
+</div>
+
+<script>
+    // 세션 타이머 설정 (분 단위)
+    const SESSION_DURATION = 30; // 30분
+    const WARNING_TIME = 5; // 5분 남았을 때 경고
+
+    // 타이머 시작 시간 저장 (localStorage 사용)
+    const TIMER_KEY = 'sessionTimerStart';
+
+    function initTimer() {
+        let startTime = localStorage.getItem(TIMER_KEY);
+
+        if (!startTime) {
+            startTime = Date.now();
+            localStorage.setItem(TIMER_KEY, startTime);
+        }
+
+        updateTimer(parseInt(startTime));
+    }
+
+    function updateTimer(startTime) {
+        const timerDisplay = document.getElementById('timerDisplay');
+        const timerContainer = document.getElementById('sessionTimer');
+
+        if (!timerDisplay || !timerContainer) {
+            setTimeout(() => updateTimer(startTime), 100);
+            return;
+        }
+
+        function update() {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const remaining = Math.max(0, SESSION_DURATION * 60 - elapsed);
+
+            const minutes = Math.floor(remaining / 60);
+            const seconds = remaining % 60;
+
+            timerDisplay.textContent =
+                String(minutes).padStart(2, '0') + ':' +
+                String(seconds).padStart(2, '0');
+
+            // 경고 상태 표시
+            if (minutes < WARNING_TIME) {
+                timerContainer.classList.add('warning');
+            } else {
+                timerContainer.classList.remove('warning');
+            }
+
+            // 시간 종료
+            if (remaining === 0) {
+                timerDisplay.textContent = '00:00';
+                alert('세션 시간이 종료되었습니다. 페이지를 새로고침 해주세요.');
+                localStorage.removeItem(TIMER_KEY);
+                return;
+            }
+
+            setTimeout(update, 1000);
+        }
+
+        update();
+    }
+
+    // 페이지 로드 시 타이머 시작
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initTimer);
+    } else {
+        initTimer();
+    }
+
+    // 타이머 리셋 함수 (사용자 활동 감지 시)
+    function resetTimer() {
+        localStorage.setItem(TIMER_KEY, Date.now());
+    }
+
+    // 사용자 활동 감지
+    ['click', 'scroll', 'keypress', 'mousemove'].forEach(event => {
+        document.addEventListener(event, () => {
+            // 5분마다만 리셋 (너무 자주 리셋되는 것 방지)
+            const lastReset = parseInt(localStorage.getItem('lastResetTime') || '0');
+            if (Date.now() - lastReset > 5 * 60 * 1000) {
+                localStorage.setItem('lastResetTime', Date.now());
+                // 활동이 있으면 타이머를 연장하지 않고 계속 카운트다운
+                // 필요시 resetTimer() 호출하여 타이머 리셋 가능
+            }
+        }, { passive: true });
+    });
+</script>
 """, unsafe_allow_html=True)
 
 
@@ -1519,7 +1656,8 @@ if df is not None and not df.empty:
     # 검색 조건 생성 - 다중 검색 지원
     search_conditions = []
     search_info = []
-    
+    search_where = ""  # 자재 검색 조건 (전월대비 분석 등에서도 사용)
+
     # 자재명 다중 검색 처리 (OR 조건)
     if material_name_patt:
         name_patterns = []
@@ -1527,7 +1665,7 @@ if df is not None and not df.empty:
         for term in name_terms:
             enhanced_name_patt = enhance_pattern(term)
             name_patterns.append(f"자재명 ILIKE '{enhanced_name_patt}'")
-        
+
         if name_patterns:
             name_clause = " OR ".join(name_patterns)
             search_conditions.append(f"({name_clause})")
@@ -1535,7 +1673,7 @@ if df is not None and not df.empty:
                 search_info.append(f"자재명: {len(name_terms)}개 조건")
             else:
                 search_info.append(f"자재명: {name_terms[0]}")
-    
+
     # 자재코드 다중 검색 처리 (OR 조건, 엑셀 복사 지원)
     if material_code_patt:
         code_patterns = []
@@ -1544,7 +1682,7 @@ if df is not None and not df.empty:
             # 자재명과 동일한 로직: 모든 경우에 enhance_pattern 적용 (와일드카드 자동 추가)
             enhanced_code_patt = enhance_pattern(term)
             code_patterns.append(f"CAST(자재 AS VARCHAR) ILIKE '{enhanced_code_patt}'")
-        
+
         if code_patterns:
             code_clause = " OR ".join(code_patterns)
             search_conditions.append(f"({code_clause})")
@@ -1647,207 +1785,261 @@ if df is not None and not df.empty:
                 mime="text/csv",
             )
 
-        # 전월대비 차이액 섹션
-        st.markdown("---")
-        st.subheader("전월대비 차이액")
 
-        with st.expander("전월대비 증감 분석", expanded=True):
-            # 월별 데이터만 지원 (연도별은 의미가 없으므로)
-            if time_unit == "월별":
-                # 분석 옵션 선택
-                mom_group_option = st.radio(
-                    "분석 단위",
-                    ["전체", "업체별"],
-                    horizontal=True,
-                    key="mom_group_option"
-                )
+    # 전월대비 차이액 분석 섹션
+    st.markdown("---")
+    st.header("전월대비 차이액 분석")
 
-                if mom_group_option == "전체":
-                    # 전체 데이터 월별 집계
-                    mom_sql = f"""
-                        WITH monthly_data AS (
-                            SELECT
-                                date_trunc('month', 마감월) AS 연월,
-                                SUM(송장금액)/1000000 AS 송장금액_백만원,
-                                SUM(송장수량)/1000 AS 송장수량_천EA
-                            FROM data
-                            {where_sql}
-                            GROUP BY date_trunc('month', 마감월)
-                        ),
-                        with_prev AS (
-                            SELECT
-                                연월,
-                                송장금액_백만원,
-                                송장수량_천EA,
-                                LAG(송장금액_백만원) OVER (ORDER BY 연월) AS 전월금액,
-                                LAG(송장수량_천EA) OVER (ORDER BY 연월) AS 전월수량
-                            FROM monthly_data
-                        )
+    # 자재 검색 조건과 기본 필터 조건 결합
+    where_sql_with_search = where_sql
+    if search_where:
+        if where_sql.strip() == "":
+            where_sql_with_search = f"WHERE ({search_where})"
+        else:
+            where_sql_with_search = f"{where_sql} AND ({search_where})"
+        st.info(f"자재 검색 조건이 적용되었습니다: {' | '.join(search_info)}")
+
+    with st.expander("전월대비 증감 분석", expanded=True):
+        # 월별 데이터만 지원 (연도별은 의미가 없으므로)
+        if time_unit == "월별":
+            # 분석 옵션 선택
+            mom_group_option = st.radio(
+                "분석 단위",
+                ["전체", "업체별"],
+                horizontal=True,
+                key="mom_group_option"
+            )
+
+            if mom_group_option == "전체":
+                # 전체 데이터 월별 집계
+                mom_sql = f"""
+                    WITH monthly_data AS (
+                        SELECT
+                            date_trunc('month', 마감월) AS 연월,
+                            SUM(송장금액)/1000000 AS 송장금액_백만원,
+                            SUM(송장수량)/1000 AS 송장수량_천EA
+                        FROM data
+                        {where_sql_with_search}
+                        GROUP BY date_trunc('month', 마감월)
+                    ),
+                    with_prev AS (
                         SELECT
                             연월,
-                            송장금액_백만원 AS 당월금액,
-                            전월금액,
-                            송장금액_백만원 - 전월금액 AS 금액차이,
-                            CASE
-                                WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
-                                ELSE NULL
-                            END AS 금액증감률,
-                            송장수량_천EA AS 당월수량,
-                            전월수량,
-                            송장수량_천EA - 전월수량 AS 수량차이,
-                            CASE
-                                WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
-                                ELSE NULL
-                            END AS 수량증감률
-                        FROM with_prev
-                        WHERE 전월금액 IS NOT NULL
-                        ORDER BY 연월
-                    """
+                            송장금액_백만원,
+                            송장수량_천EA,
+                            LAG(송장금액_백만원) OVER (ORDER BY 연월) AS 전월금액,
+                            LAG(송장수량_천EA) OVER (ORDER BY 연월) AS 전월수량
+                        FROM monthly_data
+                    )
+                    SELECT
+                        연월,
+                        송장금액_백만원 AS 당월금액,
+                        전월금액,
+                        송장금액_백만원 - 전월금액 AS 금액차이,
+                        CASE
+                            WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
+                            ELSE NULL
+                        END AS 금액증감률,
+                        송장수량_천EA AS 당월수량,
+                        전월수량,
+                        송장수량_천EA - 전월수량 AS 수량차이,
+                        CASE
+                            WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
+                            ELSE NULL
+                        END AS 수량증감률
+                    FROM with_prev
+                    WHERE 전월금액 IS NOT NULL
+                    ORDER BY 연월
+                """
 
-                    mom_df = con.execute(mom_sql).fetchdf()
+                mom_df = con.execute(mom_sql).fetchdf()
 
-                    if not mom_df.empty:
-                        # 날짜 포맷 변환
-                        mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
+                if not mom_df.empty:
+                    # 날짜 포맷 변환
+                    mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
 
-                        # 데이터 표시
-                        display_df = mom_df[['연월표시', '당월금액', '전월금액', '금액차이', '금액증감률',
-                                             '당월수량', '전월수량', '수량차이', '수량증감률']].copy()
+                    # 데이터 표시
+                    display_df = mom_df[['연월표시', '당월금액', '전월금액', '금액차이', '금액증감률',
+                                         '당월수량', '전월수량', '수량차이', '수량증감률']].copy()
 
-                        st.dataframe(
-                            display_df,
-                            hide_index=True,
-                            use_container_width=True,
-                            column_config={
-                                "연월표시": st.column_config.TextColumn("연월", width="small"),
-                                "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
-                                "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
-                                "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
-                                "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
-                                "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
-                                "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
-                                "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
-                                "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
-                            }
-                        )
+                    st.dataframe(
+                        display_df,
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "연월표시": st.column_config.TextColumn("연월", width="small"),
+                            "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
+                            "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
+                            "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
+                            "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
+                            "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
+                            "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
+                            "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
+                            "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
+                        }
+                    )
 
-                        # CSV 다운로드
-                        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            label="📥 전월대비 차이 CSV 다운로드",
-                            data=csv_data,
-                            file_name=f"전월대비차이_전체_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
+                    # CSV 다운로드
+                    csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="📥 전월대비 차이 CSV 다운로드",
+                        data=csv_data,
+                        file_name=f"전월대비차이_전체_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
 
-                elif mom_group_option == "업체별":
-                    # 업체별 월별 집계
-                    mom_sql = f"""
-                        WITH monthly_data AS (
-                            SELECT
-                                date_trunc('month', 마감월) AS 연월,
-                                공급업체명,
-                                SUM(송장금액)/1000000 AS 송장금액_백만원,
-                                SUM(송장수량)/1000 AS 송장수량_천EA
-                            FROM data
-                            {where_sql}
-                            GROUP BY date_trunc('month', 마감월), 공급업체명
-                        ),
-                        with_prev AS (
-                            SELECT
-                                연월,
-                                공급업체명,
-                                송장금액_백만원,
-                                송장수량_천EA,
-                                LAG(송장금액_백만원) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월금액,
-                                LAG(송장수량_천EA) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월수량
-                            FROM monthly_data
-                        )
+            elif mom_group_option == "업체별":
+                # 업체별 월별 집계
+                mom_sql = f"""
+                    WITH monthly_data AS (
+                        SELECT
+                            date_trunc('month', 마감월) AS 연월,
+                            공급업체명,
+                            SUM(송장금액)/1000000 AS 송장금액_백만원,
+                            SUM(송장수량)/1000 AS 송장수량_천EA
+                        FROM data
+                        {where_sql_with_search}
+                        GROUP BY date_trunc('month', 마감월), 공급업체명
+                    ),
+                    with_prev AS (
                         SELECT
                             연월,
                             공급업체명,
-                            송장금액_백만원 AS 당월금액,
-                            전월금액,
-                            송장금액_백만원 - 전월금액 AS 금액차이,
-                            CASE
-                                WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
-                                ELSE NULL
-                            END AS 금액증감률,
-                            송장수량_천EA AS 당월수량,
-                            전월수량,
-                            송장수량_천EA - 전월수량 AS 수량차이,
-                            CASE
-                                WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
-                                ELSE NULL
-                            END AS 수량증감률
-                        FROM with_prev
-                        WHERE 전월금액 IS NOT NULL
-                        ORDER BY 연월, 공급업체명
-                    """
+                            송장금액_백만원,
+                            송장수량_천EA,
+                            LAG(송장금액_백만원) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월금액,
+                            LAG(송장수량_천EA) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월수량
+                        FROM monthly_data
+                    )
+                    SELECT
+                        연월,
+                        공급업체명,
+                        송장금액_백만원 AS 당월금액,
+                        전월금액,
+                        송장금액_백만원 - 전월금액 AS 금액차이,
+                        CASE
+                            WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
+                            ELSE NULL
+                        END AS 금액증감률,
+                        송장수량_천EA AS 당월수량,
+                        전월수량,
+                        송장수량_천EA - 전월수량 AS 수량차이,
+                        CASE
+                            WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
+                            ELSE NULL
+                        END AS 수량증감률
+                    FROM with_prev
+                    WHERE 전월금액 IS NOT NULL
+                    ORDER BY 연월, 공급업체명
+                """
 
-                    mom_df = con.execute(mom_sql).fetchdf()
+                mom_df = con.execute(mom_sql).fetchdf()
 
-                    if not mom_df.empty:
-                        # 날짜 포맷 변환
-                        mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
+                if not mom_df.empty:
+                    # 날짜 포맷 변환
+                    mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
 
-                        # 업체 선택 옵션
-                        all_suppliers = sorted(mom_df['공급업체명'].unique().tolist())
+                    # 업체 선택 옵션
+                    all_suppliers = sorted(mom_df['공급업체명'].unique().tolist())
 
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
-                            selected_suppliers = st.multiselect(
-                                "업체 선택 (전체 보려면 선택하지 마세요)",
-                                options=all_suppliers,
-                                key="mom_supplier_select"
-                            )
-                        with col2:
-                            if st.button("☑ 전체선택", key="mom_select_all"):
-                                st.session_state.mom_supplier_select = all_suppliers
-                                st.rerun()
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        selected_suppliers = st.multiselect(
+                            "업체 선택 (전체 보려면 선택하지 마세요)",
+                            options=all_suppliers,
+                            key="mom_supplier_select"
+                        )
+                    with col2:
+                        if st.button("☑ 전체선택", key="mom_select_all"):
+                            st.session_state.mom_supplier_select = all_suppliers
+                            st.rerun()
 
-                        # 필터링
-                        if selected_suppliers:
-                            display_df = mom_df[mom_df['공급업체명'].isin(selected_suppliers)].copy()
-                        else:
-                            display_df = mom_df.copy()
+                    # 필터링
+                    if selected_suppliers:
+                        display_df = mom_df[mom_df['공급업체명'].isin(selected_suppliers)].copy()
+                    else:
+                        display_df = mom_df.copy()
 
-                        display_df = display_df[['연월표시', '공급업체명', '당월금액', '전월금액', '금액차이', '금액증감률',
-                                                 '당월수량', '전월수량', '수량차이', '수량증감률']]
+                    display_df = display_df[['연월표시', '공급업체명', '당월금액', '전월금액', '금액차이', '금액증감률',
+                                             '당월수량', '전월수량', '수량차이', '수량증감률']]
 
+                    st.dataframe(
+                        display_df,
+                        hide_index=True,
+                        use_container_width=True,
+                        column_config={
+                            "연월표시": st.column_config.TextColumn("연월", width="small"),
+                            "공급업체명": st.column_config.TextColumn("업체명", width="medium"),
+                            "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
+                            "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
+                            "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
+                            "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
+                            "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
+                            "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
+                            "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
+                            "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
+                        }
+                    )
+
+                    # 업체별 구매액 비중 도넛 차트
+                    st.subheader("업체별 구매액 비중")
+
+                    # 업체별 총 구매액 집계 (당월금액 기준)
+                    supplier_summary = display_df.groupby('공급업체명').agg({
+                        '당월금액': 'sum'
+                    }).reset_index()
+                    supplier_summary.columns = ['공급업체명', '총구매액']
+                    supplier_summary = supplier_summary.sort_values('총구매액', ascending=False)
+
+                    # 비중 계산
+                    total_amount = supplier_summary['총구매액'].sum()
+                    supplier_summary['비중'] = (supplier_summary['총구매액'] / total_amount * 100).round(1)
+
+                    # 도넛 차트 생성
+                    donut_chart = alt.Chart(supplier_summary).mark_arc(innerRadius=80, outerRadius=140).encode(
+                        theta=alt.Theta(field="총구매액", type="quantitative"),
+                        color=alt.Color(field="공급업체명", type="nominal", legend=alt.Legend(title="업체명")),
+                        tooltip=[
+                            alt.Tooltip('공급업체명:N', title='업체명'),
+                            alt.Tooltip('총구매액:Q', title='총구매액(백만원)', format=',.0f'),
+                            alt.Tooltip('비중:Q', title='비중(%)', format='.1f')
+                        ]
+                    ).properties(
+                        width=400,
+                        height=400,
+                        title="업체별 구매액 비중"
+                    )
+
+                    # 차트와 테이블을 나란히 배치
+                    col1, col2 = st.columns([1, 1])
+                    with col1:
+                        st.altair_chart(donut_chart, use_container_width=True)
+                    with col2:
                         st.dataframe(
-                            display_df,
+                            supplier_summary,
                             hide_index=True,
                             use_container_width=True,
                             column_config={
-                                "연월표시": st.column_config.TextColumn("연월", width="small"),
-                                "공급업체명": st.column_config.TextColumn("업체명", width="medium"),
-                                "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
-                                "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
-                                "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
-                                "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
-                                "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
-                                "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
-                                "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
-                                "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
+                                "공급업체명": st.column_config.TextColumn("업체명"),
+                                "총구매액": st.column_config.NumberColumn("총구매액(백만원)", format="%.0f"),
+                                "비중": st.column_config.NumberColumn("비중(%)", format="%.1f%%")
                             }
                         )
 
-                        # CSV 다운로드
-                        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            label="📥 전월대비 차이 CSV 다운로드",
-                            data=csv_data,
-                            file_name=f"전월대비차이_업체별_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
-            else:
-                st.info("전월대비 차이 분석은 월별 집계에서만 사용 가능합니다. 상단에서 집계 단위를 '월별'로 변경해주세요.")
-
+                    # CSV 다운로드
+                    csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="📥 전월대비 차이 CSV 다운로드",
+                        data=csv_data,
+                        file_name=f"전월대비차이_업체별_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
+        else:
+            st.info("전월대비 차이 분석은 월별 집계에서만 사용 가능합니다. 상단에서 집계 단위를 '월별'로 변경해주세요.")
 
     # 미마감 자재 확인 섹션
     st.markdown("---")

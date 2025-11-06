@@ -28,7 +28,7 @@ st.markdown("""
     .session-timer {
         position: fixed;
         top: 10px;
-        right: 20px;
+        left: 20px;
         z-index: 9999;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
@@ -1997,16 +1997,29 @@ if df is not None and not df.empty:
                     total_amount = supplier_summary['총구매액'].sum()
                     supplier_summary['비중'] = (supplier_summary['총구매액'] / total_amount * 100).round(1)
 
-                    # 도넛 차트 생성
-                    donut_chart = alt.Chart(supplier_summary).mark_arc(innerRadius=80, outerRadius=140).encode(
+                    # 도넛 차트 생성 (아크 부분)
+                    base_chart = alt.Chart(supplier_summary).encode(
                         theta=alt.Theta(field="총구매액", type="quantitative"),
                         color=alt.Color(field="공급업체명", type="nominal", legend=alt.Legend(title="업체명")),
+                    )
+
+                    # 아크 레이어
+                    arc = base_chart.mark_arc(innerRadius=80, outerRadius=140).encode(
                         tooltip=[
                             alt.Tooltip('공급업체명:N', title='업체명'),
                             alt.Tooltip('총구매액:Q', title='총구매액(백만원)', format=',.0f'),
                             alt.Tooltip('비중:Q', title='비중(%)', format='.1f')
                         ]
-                    ).properties(
+                    )
+
+                    # 텍스트 레이어 (비중 표시)
+                    text = base_chart.mark_text(radius=110, fontSize=14, fontWeight='bold').encode(
+                        text=alt.Text('비중:Q', format='.1f'),
+                        color=alt.value('white')
+                    )
+
+                    # 차트 결합
+                    donut_chart = (arc + text).properties(
                         width=400,
                         height=400,
                         title="업체별 구매액 비중"

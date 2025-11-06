@@ -1997,14 +1997,11 @@ if df is not None and not df.empty:
                     total_amount = supplier_summary['총구매액'].sum()
                     supplier_summary['비중'] = (supplier_summary['총구매액'] / total_amount * 100).round(1)
 
-                    # 도넛 차트 생성 (아크 부분)
-                    base_chart = alt.Chart(supplier_summary).encode(
-                        theta=alt.Theta(field="총구매액", type="quantitative"),
-                        color=alt.Color(field="공급업체명", type="nominal", legend=alt.Legend(title="업체명")),
-                    )
-
+                    # 도넛 차트 생성
                     # 아크 레이어
-                    arc = base_chart.mark_arc(innerRadius=80, outerRadius=140).encode(
+                    arc = alt.Chart(supplier_summary).mark_arc(innerRadius=80, outerRadius=140).encode(
+                        theta=alt.Theta(field="총구매액", type="quantitative", stack=True),
+                        color=alt.Color(field="공급업체명", type="nominal", legend=alt.Legend(title="업체명")),
                         tooltip=[
                             alt.Tooltip('공급업체명:N', title='업체명'),
                             alt.Tooltip('총구매액:Q', title='총구매액(백만원)', format=',.0f'),
@@ -2012,10 +2009,15 @@ if df is not None and not df.empty:
                         ]
                     )
 
-                    # 텍스트 레이어 (비중 표시)
-                    text = base_chart.mark_text(radius=110, fontSize=14, fontWeight='bold').encode(
-                        text=alt.Text('비중:Q', format='.1f'),
-                        color=alt.value('white')
+                    # 텍스트 레이어 (비중 표시) - 각 섹션 중앙에 표시
+                    text = alt.Chart(supplier_summary).mark_text(
+                        radius=115,
+                        fontSize=13,
+                        fontWeight='bold',
+                        color='white'
+                    ).encode(
+                        theta=alt.Theta(field="총구매액", type="quantitative", stack=True),
+                        text=alt.Text('비중:Q', format='.1f')
                     )
 
                     # 차트 결합

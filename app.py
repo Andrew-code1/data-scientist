@@ -1027,207 +1027,6 @@ if df is not None and not df.empty:
         except Exception:
             pass
 
-        # 전월대비 차이액 섹션
-        st.markdown("---")
-        st.subheader("전월대비 차이액")
-
-        with st.expander("전월대비 증감 분석", expanded=True):
-            # 월별 데이터만 지원 (연도별은 의미가 없으므로)
-            if time_unit == "월별":
-                # 분석 옵션 선택
-                mom_group_option = st.radio(
-                    "분석 단위",
-                    ["전체", "업체별"],
-                    horizontal=True,
-                    key="mom_group_option"
-                )
-
-                if mom_group_option == "전체":
-                    # 전체 데이터 월별 집계
-                    mom_sql = f"""
-                        WITH monthly_data AS (
-                            SELECT
-                                date_trunc('month', 마감월) AS 연월,
-                                SUM(송장금액)/1000000 AS 송장금액_백만원,
-                                SUM(송장수량)/1000 AS 송장수량_천EA
-                            FROM data
-                            {where_sql}
-                            GROUP BY date_trunc('month', 마감월)
-                        ),
-                        with_prev AS (
-                            SELECT
-                                연월,
-                                송장금액_백만원,
-                                송장수량_천EA,
-                                LAG(송장금액_백만원) OVER (ORDER BY 연월) AS 전월금액,
-                                LAG(송장수량_천EA) OVER (ORDER BY 연월) AS 전월수량
-                            FROM monthly_data
-                        )
-                        SELECT
-                            연월,
-                            송장금액_백만원 AS 당월금액,
-                            전월금액,
-                            송장금액_백만원 - 전월금액 AS 금액차이,
-                            CASE
-                                WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
-                                ELSE NULL
-                            END AS 금액증감률,
-                            송장수량_천EA AS 당월수량,
-                            전월수량,
-                            송장수량_천EA - 전월수량 AS 수량차이,
-                            CASE
-                                WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
-                                ELSE NULL
-                            END AS 수량증감률
-                        FROM with_prev
-                        WHERE 전월금액 IS NOT NULL
-                        ORDER BY 연월
-                    """
-
-                    mom_df = con.execute(mom_sql).fetchdf()
-
-                    if not mom_df.empty:
-                        # 날짜 포맷 변환
-                        mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
-
-                        # 데이터 표시
-                        display_df = mom_df[['연월표시', '당월금액', '전월금액', '금액차이', '금액증감률',
-                                             '당월수량', '전월수량', '수량차이', '수량증감률']].copy()
-
-                        st.dataframe(
-                            display_df,
-                            hide_index=True,
-                            use_container_width=True,
-                            column_config={
-                                "연월표시": st.column_config.TextColumn("연월", width="small"),
-                                "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
-                                "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
-                                "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
-                                "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
-                                "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
-                                "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
-                                "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
-                                "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
-                            }
-                        )
-
-                        # CSV 다운로드
-                        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            label="📥 전월대비 차이 CSV 다운로드",
-                            data=csv_data,
-                            file_name=f"전월대비차이_전체_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
-
-                elif mom_group_option == "업체별":
-                    # 업체별 월별 집계
-                    mom_sql = f"""
-                        WITH monthly_data AS (
-                            SELECT
-                                date_trunc('month', 마감월) AS 연월,
-                                공급업체명,
-                                SUM(송장금액)/1000000 AS 송장금액_백만원,
-                                SUM(송장수량)/1000 AS 송장수량_천EA
-                            FROM data
-                            {where_sql}
-                            GROUP BY date_trunc('month', 마감월), 공급업체명
-                        ),
-                        with_prev AS (
-                            SELECT
-                                연월,
-                                공급업체명,
-                                송장금액_백만원,
-                                송장수량_천EA,
-                                LAG(송장금액_백만원) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월금액,
-                                LAG(송장수량_천EA) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월수량
-                            FROM monthly_data
-                        )
-                        SELECT
-                            연월,
-                            공급업체명,
-                            송장금액_백만원 AS 당월금액,
-                            전월금액,
-                            송장금액_백만원 - 전월금액 AS 금액차이,
-                            CASE
-                                WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
-                                ELSE NULL
-                            END AS 금액증감률,
-                            송장수량_천EA AS 당월수량,
-                            전월수량,
-                            송장수량_천EA - 전월수량 AS 수량차이,
-                            CASE
-                                WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
-                                ELSE NULL
-                            END AS 수량증감률
-                        FROM with_prev
-                        WHERE 전월금액 IS NOT NULL
-                        ORDER BY 연월, 공급업체명
-                    """
-
-                    mom_df = con.execute(mom_sql).fetchdf()
-
-                    if not mom_df.empty:
-                        # 날짜 포맷 변환
-                        mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
-
-                        # 업체 선택 옵션
-                        all_suppliers = sorted(mom_df['공급업체명'].unique().tolist())
-
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
-                            selected_suppliers = st.multiselect(
-                                "업체 선택 (전체 보려면 선택하지 마세요)",
-                                options=all_suppliers,
-                                key="mom_supplier_select"
-                            )
-                        with col2:
-                            if st.button("☑ 전체선택", key="mom_select_all"):
-                                st.session_state.mom_supplier_select = all_suppliers
-                                st.rerun()
-
-                        # 필터링
-                        if selected_suppliers:
-                            display_df = mom_df[mom_df['공급업체명'].isin(selected_suppliers)].copy()
-                        else:
-                            display_df = mom_df.copy()
-
-                        display_df = display_df[['연월표시', '공급업체명', '당월금액', '전월금액', '금액차이', '금액증감률',
-                                                 '당월수량', '전월수량', '수량차이', '수량증감률']]
-
-                        st.dataframe(
-                            display_df,
-                            hide_index=True,
-                            use_container_width=True,
-                            column_config={
-                                "연월표시": st.column_config.TextColumn("연월", width="small"),
-                                "공급업체명": st.column_config.TextColumn("업체명", width="medium"),
-                                "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
-                                "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
-                                "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
-                                "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
-                                "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
-                                "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
-                                "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
-                                "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
-                            }
-                        )
-
-                        # CSV 다운로드
-                        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            label="📥 전월대비 차이 CSV 다운로드",
-                            data=csv_data,
-                            file_name=f"전월대비차이_업체별_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
-            else:
-                st.info("전월대비 차이 분석은 월별 집계에서만 사용 가능합니다. 상단에서 집계 단위를 '월별'로 변경해주세요.")
-
         # Raw 데이터 조회 섹션
         st.markdown("---")
         st.subheader("상세 Raw 데이터 조회")
@@ -1847,6 +1646,208 @@ if df is not None and not df.empty:
                 file_name="search_results.csv",
                 mime="text/csv",
             )
+
+        # 전월대비 차이액 섹션
+        st.markdown("---")
+        st.subheader("전월대비 차이액")
+
+        with st.expander("전월대비 증감 분석", expanded=True):
+            # 월별 데이터만 지원 (연도별은 의미가 없으므로)
+            if time_unit == "월별":
+                # 분석 옵션 선택
+                mom_group_option = st.radio(
+                    "분석 단위",
+                    ["전체", "업체별"],
+                    horizontal=True,
+                    key="mom_group_option"
+                )
+
+                if mom_group_option == "전체":
+                    # 전체 데이터 월별 집계
+                    mom_sql = f"""
+                        WITH monthly_data AS (
+                            SELECT
+                                date_trunc('month', 마감월) AS 연월,
+                                SUM(송장금액)/1000000 AS 송장금액_백만원,
+                                SUM(송장수량)/1000 AS 송장수량_천EA
+                            FROM data
+                            {where_sql}
+                            GROUP BY date_trunc('month', 마감월)
+                        ),
+                        with_prev AS (
+                            SELECT
+                                연월,
+                                송장금액_백만원,
+                                송장수량_천EA,
+                                LAG(송장금액_백만원) OVER (ORDER BY 연월) AS 전월금액,
+                                LAG(송장수량_천EA) OVER (ORDER BY 연월) AS 전월수량
+                            FROM monthly_data
+                        )
+                        SELECT
+                            연월,
+                            송장금액_백만원 AS 당월금액,
+                            전월금액,
+                            송장금액_백만원 - 전월금액 AS 금액차이,
+                            CASE
+                                WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
+                                ELSE NULL
+                            END AS 금액증감률,
+                            송장수량_천EA AS 당월수량,
+                            전월수량,
+                            송장수량_천EA - 전월수량 AS 수량차이,
+                            CASE
+                                WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
+                                ELSE NULL
+                            END AS 수량증감률
+                        FROM with_prev
+                        WHERE 전월금액 IS NOT NULL
+                        ORDER BY 연월
+                    """
+
+                    mom_df = con.execute(mom_sql).fetchdf()
+
+                    if not mom_df.empty:
+                        # 날짜 포맷 변환
+                        mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
+
+                        # 데이터 표시
+                        display_df = mom_df[['연월표시', '당월금액', '전월금액', '금액차이', '금액증감률',
+                                             '당월수량', '전월수량', '수량차이', '수량증감률']].copy()
+
+                        st.dataframe(
+                            display_df,
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                "연월표시": st.column_config.TextColumn("연월", width="small"),
+                                "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
+                                "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
+                                "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
+                                "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
+                                "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
+                                "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
+                                "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
+                                "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
+                            }
+                        )
+
+                        # CSV 다운로드
+                        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
+                        st.download_button(
+                            label="📥 전월대비 차이 CSV 다운로드",
+                            data=csv_data,
+                            file_name=f"전월대비차이_전체_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
+
+                elif mom_group_option == "업체별":
+                    # 업체별 월별 집계
+                    mom_sql = f"""
+                        WITH monthly_data AS (
+                            SELECT
+                                date_trunc('month', 마감월) AS 연월,
+                                공급업체명,
+                                SUM(송장금액)/1000000 AS 송장금액_백만원,
+                                SUM(송장수량)/1000 AS 송장수량_천EA
+                            FROM data
+                            {where_sql}
+                            GROUP BY date_trunc('month', 마감월), 공급업체명
+                        ),
+                        with_prev AS (
+                            SELECT
+                                연월,
+                                공급업체명,
+                                송장금액_백만원,
+                                송장수량_천EA,
+                                LAG(송장금액_백만원) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월금액,
+                                LAG(송장수량_천EA) OVER (PARTITION BY 공급업체명 ORDER BY 연월) AS 전월수량
+                            FROM monthly_data
+                        )
+                        SELECT
+                            연월,
+                            공급업체명,
+                            송장금액_백만원 AS 당월금액,
+                            전월금액,
+                            송장금액_백만원 - 전월금액 AS 금액차이,
+                            CASE
+                                WHEN 전월금액 > 0 THEN ROUND(((송장금액_백만원 - 전월금액) / 전월금액 * 100), 1)
+                                ELSE NULL
+                            END AS 금액증감률,
+                            송장수량_천EA AS 당월수량,
+                            전월수량,
+                            송장수량_천EA - 전월수량 AS 수량차이,
+                            CASE
+                                WHEN 전월수량 > 0 THEN ROUND(((송장수량_천EA - 전월수량) / 전월수량 * 100), 1)
+                                ELSE NULL
+                            END AS 수량증감률
+                        FROM with_prev
+                        WHERE 전월금액 IS NOT NULL
+                        ORDER BY 연월, 공급업체명
+                    """
+
+                    mom_df = con.execute(mom_sql).fetchdf()
+
+                    if not mom_df.empty:
+                        # 날짜 포맷 변환
+                        mom_df['연월표시'] = pd.to_datetime(mom_df['연월']).dt.strftime('%Y년%m월')
+
+                        # 업체 선택 옵션
+                        all_suppliers = sorted(mom_df['공급업체명'].unique().tolist())
+
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            selected_suppliers = st.multiselect(
+                                "업체 선택 (전체 보려면 선택하지 마세요)",
+                                options=all_suppliers,
+                                key="mom_supplier_select"
+                            )
+                        with col2:
+                            if st.button("☑ 전체선택", key="mom_select_all"):
+                                st.session_state.mom_supplier_select = all_suppliers
+                                st.rerun()
+
+                        # 필터링
+                        if selected_suppliers:
+                            display_df = mom_df[mom_df['공급업체명'].isin(selected_suppliers)].copy()
+                        else:
+                            display_df = mom_df.copy()
+
+                        display_df = display_df[['연월표시', '공급업체명', '당월금액', '전월금액', '금액차이', '금액증감률',
+                                                 '당월수량', '전월수량', '수량차이', '수량증감률']]
+
+                        st.dataframe(
+                            display_df,
+                            hide_index=True,
+                            use_container_width=True,
+                            column_config={
+                                "연월표시": st.column_config.TextColumn("연월", width="small"),
+                                "공급업체명": st.column_config.TextColumn("업체명", width="medium"),
+                                "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
+                                "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
+                                "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
+                                "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
+                                "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
+                                "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
+                                "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
+                                "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
+                            }
+                        )
+
+                        # CSV 다운로드
+                        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
+                        st.download_button(
+                            label="📥 전월대비 차이 CSV 다운로드",
+                            data=csv_data,
+                            file_name=f"전월대비차이_업체별_{pd.Timestamp.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.info("전월대비 분석을 위한 데이터가 부족합니다. (최소 2개월 데이터 필요)")
+            else:
+                st.info("전월대비 차이 분석은 월별 집계에서만 사용 가능합니다. 상단에서 집계 단위를 '월별'로 변경해주세요.")
+
 
     # 미마감 자재 확인 섹션
     st.markdown("---")

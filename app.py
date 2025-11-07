@@ -1999,15 +1999,8 @@ if df is not None and not df.empty:
                     total_amount = supplier_summary['총구매액'].sum()
                     supplier_summary['비중'] = (supplier_summary['총구매액'] / total_amount * 100).round(1)
 
-                    # 정렬 순서를 위한 인덱스 추가 (Altair가 정확한 순서로 처리하도록)
+                    # 정렬 순서를 위한 인덱스 추가
                     supplier_summary['order'] = range(len(supplier_summary))
-
-                    # 텍스트 위치를 위한 중간 각도 계산
-                    # 각 세그먼트의 시작과 끝 위치(누적값)를 계산
-                    supplier_summary['cumsum_end'] = supplier_summary['총구매액'].cumsum()
-                    supplier_summary['cumsum_start'] = supplier_summary['cumsum_end'].shift(1, fill_value=0)
-                    # 각 세그먼트의 정확한 중간 위치
-                    supplier_summary['중간위치'] = (supplier_summary['cumsum_start'] + supplier_summary['cumsum_end']) / 2
 
                     # 도넛 차트 생성
                     # 아크 레이어
@@ -2023,19 +2016,38 @@ if df is not None and not df.empty:
                         ]
                     )
 
-                    # 텍스트 레이어 (비중 표시) - scale domain을 명시적으로 설정하여 정확한 위치에 배치
-                    text = alt.Chart(supplier_summary).mark_text(
-                        radius=110,  # 도넛의 중간 위치
+                    # 텍스트 레이어를 위한 데이터 변환
+                    # 각 세그먼트를 2개로 분할하여 정확한 중앙에 텍스트 배치
+                    text_data = []
+                    for idx, row in supplier_summary.iterrows():
+                        half_amount = row['총구매액'] / 2
+                        # 첫 번째 절반 (텍스트 없음)
+                        text_data.append({
+                            '공급업체명': row['공급업체명'],
+                            '값': half_amount,
+                            '텍스트': '',
+                            'order': row['order'] * 2
+                        })
+                        # 두 번째 절반 (텍스트 표시 - 이 부분이 세그먼트의 중앙)
+                        text_data.append({
+                            '공급업체명': row['공급업체명'],
+                            '값': half_amount,
+                            '텍스트': f"{row['비중']:.1f}",
+                            'order': row['order'] * 2 + 1
+                        })
+
+                    text_df = pd.DataFrame(text_data)
+
+                    # 텍스트 레이어 - 분할된 데이터로 정확한 중앙에 배치
+                    text = alt.Chart(text_df).mark_text(
+                        radius=110,
                         fontSize=14,
                         fontWeight='bold',
                         color='white'
                     ).encode(
-                        theta=alt.Theta(
-                            field="중간위치:Q",
-                            stack=False,
-                            scale=alt.Scale(domain=[0, total_amount])
-                        ),
-                        text=alt.Text('비중:Q', format='.1f')
+                        theta=alt.Theta(field="값:Q", type="quantitative", stack=True),
+                        order=alt.Order(field="order:Q", type="quantitative"),
+                        text=alt.Text('텍스트:N')
                     )
 
                     # 차트 결합

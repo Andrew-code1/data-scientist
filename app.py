@@ -2016,38 +2016,28 @@ if df is not None and not df.empty:
                         ]
                     )
 
-                    # 텍스트 레이어를 위한 데이터 변환
-                    # 각 세그먼트를 2개로 분할하여 정확한 중앙에 텍스트 배치
-                    text_data = []
-                    for idx, row in supplier_summary.iterrows():
-                        half_amount = row['총구매액'] / 2
-                        # 첫 번째 절반 (텍스트 없음)
-                        text_data.append({
-                            '공급업체명': row['공급업체명'],
-                            '값': half_amount,
-                            '텍스트': '',
-                            'order': row['order'] * 2
-                        })
-                        # 두 번째 절반 (텍스트 표시 - 이 부분이 세그먼트의 중앙)
-                        text_data.append({
-                            '공급업체명': row['공급업체명'],
-                            '값': half_amount,
-                            '텍스트': f"{row['비중']:.1f}",
-                            'order': row['order'] * 2 + 1
-                        })
-
-                    text_df = pd.DataFrame(text_data)
-
-                    # 텍스트 레이어 - 분할된 데이터로 정확한 중앙에 배치
-                    text = alt.Chart(text_df).mark_text(
+                    # 텍스트 레이어 - Altair transform을 활용하여 정확한 중앙 위치 계산
+                    text = alt.Chart(supplier_summary).mark_text(
                         radius=110,
                         fontSize=14,
                         fontWeight='bold',
                         color='white'
                     ).encode(
-                        theta=alt.Theta(field="값:Q", type="quantitative", stack=True),
-                        order=alt.Order(field="order:Q", type="quantitative"),
-                        text=alt.Text('텍스트:N')
+                        theta=alt.Theta(field="총구매액", type="quantitative", stack=True),
+                        order=alt.Order(field="order", type="quantitative"),
+                        text=alt.Text('비중:Q', format='.1f')
+                    ).transform_window(
+                        # 누적 합계 계산 (이전 세그먼트들의 합)
+                        cumulative_sum='sum(총구매액)',
+                        sort=[alt.SortField('order', order='ascending')],
+                        frame=[None, -1]  # 현재 행 이전까지의 합계
+                    ).transform_calculate(
+                        # 각 세그먼트의 중간 theta 값 계산
+                        # theta_mid = (이전 누적합 + 현재값/2)
+                        theta_mid='datum.cumulative_sum + datum.총구매액 / 2'
+                    ).encode(
+                        # 계산된 중간 theta 값 사용
+                        theta=alt.Theta('theta_mid:Q', stack=False)
                     )
 
                     # 차트 결합

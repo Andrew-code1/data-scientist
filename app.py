@@ -1999,6 +1999,12 @@ if df is not None and not df.empty:
                     total_amount = supplier_summary['총구매액'].sum()
                     supplier_summary['비중'] = (supplier_summary['총구매액'] / total_amount * 100).round(1)
 
+                    # 각 섹션의 중간 위치 계산 (정확한 레이블 배치를 위해)
+                    supplier_summary['총구매액_누적'] = supplier_summary['총구매액'].cumsum()
+                    supplier_summary['총구매액_누적_이전'] = supplier_summary['총구매액_누적'].shift(1, fill_value=0)
+                    # 각 섹션의 중간 위치 (누적값 기준)
+                    supplier_summary['중간위치'] = (supplier_summary['총구매액_누적'] + supplier_summary['총구매액_누적_이전']) / 2
+
                     # 도넛 차트 생성
                     # 아크 레이어
                     arc = alt.Chart(supplier_summary).mark_arc(innerRadius=80, outerRadius=140).encode(
@@ -2011,15 +2017,14 @@ if df is not None and not df.empty:
                         ]
                     )
 
-                    # 텍스트 레이어 (비중 표시) - 각 섹션 중앙에 정확하게 표시
-                    # stack=True를 사용하여 arc와 동일한 방식으로 쌓임
+                    # 텍스트 레이어 (비중 표시) - 각 섹션의 정확한 중앙에 배치
                     text = alt.Chart(supplier_summary).mark_text(
-                        radius=110,  # 도넛의 중간 위치 (80과 140의 중간)
+                        radius=110,  # 도넛의 중간 위치
                         fontSize=14,
                         fontWeight='bold',
                         color='white'
                     ).encode(
-                        theta=alt.Theta(field="총구매액", type="quantitative", stack=True),
+                        theta=alt.Theta('중간위치:Q', stack=False),
                         text=alt.Text('비중:Q', format='.1f')
                     )
 

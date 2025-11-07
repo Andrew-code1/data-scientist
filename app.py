@@ -2023,15 +2023,18 @@ if df is not None and not df.empty:
                         ]
                     )
 
-                    # 텍스트 레이어 (비중 표시) - 계산된 중간위치를 사용하여 정확한 중앙에 배치
+                    # 텍스트 레이어 (비중 표시) - scale domain을 명시적으로 설정하여 정확한 위치에 배치
                     text = alt.Chart(supplier_summary).mark_text(
                         radius=110,  # 도넛의 중간 위치
                         fontSize=14,
                         fontWeight='bold',
                         color='white'
                     ).encode(
-                        theta=alt.Theta(field="중간위치:Q", stack=False),
-                        order=alt.Order(field="order", type="quantitative"),
+                        theta=alt.Theta(
+                            field="중간위치:Q",
+                            stack=False,
+                            scale=alt.Scale(domain=[0, total_amount])
+                        ),
                         text=alt.Text('비중:Q', format='.1f')
                     )
 

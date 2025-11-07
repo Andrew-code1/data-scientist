@@ -1993,23 +1993,29 @@ if df is not None and not df.empty:
                         '당월금액': 'sum'
                     }).reset_index()
                     supplier_summary.columns = ['공급업체명', '총구매액']
-                    supplier_summary = supplier_summary.sort_values('총구매액', ascending=False)
+                    supplier_summary = supplier_summary.sort_values('총구매액', ascending=False).reset_index(drop=True)
 
                     # 비중 계산
                     total_amount = supplier_summary['총구매액'].sum()
                     supplier_summary['비중'] = (supplier_summary['총구매액'] / total_amount * 100).round(1)
 
-                    # 각 섹션의 중간 위치 계산 (정확한 레이블 배치를 위해)
-                    supplier_summary['총구매액_누적'] = supplier_summary['총구매액'].cumsum()
-                    supplier_summary['총구매액_누적_이전'] = supplier_summary['총구매액_누적'].shift(1, fill_value=0)
-                    # 각 섹션의 중간 위치 (누적값 기준)
-                    supplier_summary['중간위치'] = (supplier_summary['총구매액_누적'] + supplier_summary['총구매액_누적_이전']) / 2
+                    # 정렬 순서를 위한 인덱스 추가 (Altair가 정확한 순서로 처리하도록)
+                    supplier_summary['order'] = range(len(supplier_summary))
+
+                    # 텍스트 위치를 위한 중간 각도 계산
+                    # 각 세그먼트의 시작과 끝 위치(누적값)를 계산
+                    supplier_summary['cumsum_end'] = supplier_summary['총구매액'].cumsum()
+                    supplier_summary['cumsum_start'] = supplier_summary['cumsum_end'].shift(1, fill_value=0)
+                    # 각 세그먼트의 정확한 중간 위치
+                    supplier_summary['중간위치'] = (supplier_summary['cumsum_start'] + supplier_summary['cumsum_end']) / 2
 
                     # 도넛 차트 생성
                     # 아크 레이어
                     arc = alt.Chart(supplier_summary).mark_arc(innerRadius=80, outerRadius=140).encode(
                         theta=alt.Theta(field="총구매액", type="quantitative", stack=True),
-                        color=alt.Color(field="공급업체명", type="nominal", legend=alt.Legend(title="업체명")),
+                        order=alt.Order(field="order", type="quantitative"),
+                        color=alt.Color(field="공급업체명", type="nominal", legend=alt.Legend(title="업체명"),
+                                       sort=alt.EncodingSortField(field="order", order="ascending")),
                         tooltip=[
                             alt.Tooltip('공급업체명:N', title='업체명'),
                             alt.Tooltip('총구매액:Q', title='총구매액(백만원)', format=',.0f'),
@@ -2017,14 +2023,15 @@ if df is not None and not df.empty:
                         ]
                     )
 
-                    # 텍스트 레이어 (비중 표시) - 각 섹션의 정확한 중앙에 배치
+                    # 텍스트 레이어 (비중 표시) - 계산된 중간위치를 사용하여 정확한 중앙에 배치
                     text = alt.Chart(supplier_summary).mark_text(
                         radius=110,  # 도넛의 중간 위치
                         fontSize=14,
                         fontWeight='bold',
                         color='white'
                     ).encode(
-                        theta=alt.Theta('중간위치:Q', stack=False),
+                        theta=alt.Theta(field="중간위치:Q", stack=False),
+                        order=alt.Order(field="order", type="quantitative"),
                         text=alt.Text('비중:Q', format='.1f')
                     )
 

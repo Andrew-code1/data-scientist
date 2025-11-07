@@ -1944,6 +1944,10 @@ if df is not None and not df.empty:
                     # 업체 선택 옵션
                     all_suppliers = sorted(mom_df['공급업체명'].unique().tolist())
 
+                    # 전체선택 콜백 함수
+                    def select_all_mom_suppliers():
+                        st.session_state.mom_supplier_select = all_suppliers
+
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         selected_suppliers = st.multiselect(
@@ -1952,9 +1956,7 @@ if df is not None and not df.empty:
                             key="mom_supplier_select"
                         )
                     with col2:
-                        if st.button("☑ 전체선택", key="mom_select_all"):
-                            st.session_state.mom_supplier_select = all_suppliers
-                            st.rerun()
+                        st.button("☑ 전체선택", key="mom_select_all", on_click=select_all_mom_suppliers)
 
                     # 필터링
                     if selected_suppliers:

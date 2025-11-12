@@ -2022,29 +2022,28 @@ if df is not None and not df.empty:
                         fontSize=14,
                         fontWeight='bold',
                         color='white'
-                    ).encode(
-                        theta=alt.Theta(field="총구매액", type="quantitative", stack=True),
-                        order=alt.Order(field="order", type="quantitative"),
-                        text=alt.Text('비중:Q', format='.1f')
                     ).transform_window(
-                        # 누적 합계 계산 (이전 세그먼트들의 합)
+                        # 누적 합계 계산 (현재 행 포함까지의 합)
                         cumulative_sum='sum(총구매액)',
-                        sort=[alt.SortField('order', order='ascending')],
-                        frame=[None, -1]  # 현재 행 이전까지의 합계
+                        sort=[alt.SortField('order', order='ascending')]
                     ).transform_calculate(
                         # 각 세그먼트의 중간 theta 값 계산
-                        # theta_mid = (이전 누적합 + 현재값/2)
-                        theta_mid='datum.cumulative_sum + datum.총구매액 / 2'
+                        # theta_mid = (누적합 - 현재값/2) = 이전 누적합 + 현재값/2
+                        theta_mid='datum.cumulative_sum - datum.총구매액 / 2'
                     ).encode(
-                        # 계산된 중간 theta 값 사용
-                        theta=alt.Theta('theta_mid:Q', stack=False)
+                        theta=alt.Theta('theta_mid:Q', stack=False),
+                        order=alt.Order(field="order", type="quantitative"),
+                        text=alt.Text('비중:Q', format='.1f')
                     )
 
                     # 차트 결합
                     donut_chart = (arc + text).properties(
                         width=400,
                         height=400,
-                        title="업체별 구매액 비중"
+                        title="업체별 구매액 비중",
+                        padding={"left": 50, "right": 50, "top": 50, "bottom": 50}
+                    ).configure_view(
+                        strokeWidth=0
                     )
 
                     # 차트와 테이블을 나란히 배치

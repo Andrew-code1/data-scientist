@@ -1614,9 +1614,9 @@ if df is not None and not df.empty:
         if st.button("🗑️ 자재 검색 초기화", key="clear_material_search"):
             st.session_state.global_material_name_search = ""
             st.session_state.global_material_code_search = ""
-            # widget 값 직접 초기화
-            st.session_state.material_name_input = ""
-            st.session_state.material_code_input = ""
+            # widget key 삭제하여 다음 rerun에서 value= 파라미터로 초기화
+            st.session_state.pop("material_name_input", None)
+            st.session_state.pop("material_code_input", None)
             st.rerun()
 
     # session_state 업데이트

@@ -1592,10 +1592,16 @@ if df is not None and not df.empty:
     st.info("**여기서 입력한 검색 조건이 위의 모든 차트와 분석에 자동 적용됩니다!**")
     
     
+    def clear_material_search():
+        st.session_state.global_material_name_search = ""
+        st.session_state.global_material_code_search = ""
+        st.session_state.material_name_input = ""
+        st.session_state.material_code_input = ""
+
     col1, col2, col3 = st.columns([4, 4, 2])
     with col1:
         material_name_patt = st.text_area(
-            "자재명 다중 검색", 
+            "자재명 다중 검색",
             placeholder="예시:\n*퍼퓸*, *로션*\n또는\n*퍼퓸*\n*로션*\n*크림*",
             value=st.session_state.global_material_name_search,
             key="material_name_input",
@@ -1603,7 +1609,7 @@ if df is not None and not df.empty:
         )
     with col2:
         material_code_patt = st.text_area(
-            "자재코드 다중 검색", 
+            "자재코드 다중 검색",
             placeholder="예시:\n1234567, 2345678\n또는 엑셀 복사 붙여넣기",
             value=st.session_state.global_material_code_search,
             key="material_code_input",
@@ -1611,13 +1617,7 @@ if df is not None and not df.empty:
         )
     with col3:
         st.write("")  # 여백
-        if st.button("🗑️ 자재 검색 초기화", key="clear_material_search"):
-            st.session_state.global_material_name_search = ""
-            st.session_state.global_material_code_search = ""
-            # widget key 삭제하여 다음 rerun에서 value= 파라미터로 초기화
-            st.session_state.pop("material_name_input", None)
-            st.session_state.pop("material_code_input", None)
-            st.rerun()
+        st.button("🗑️ 자재 검색 초기화", key="clear_material_search", on_click=clear_material_search)
 
     # session_state 업데이트
     if material_name_patt != st.session_state.global_material_name_search:

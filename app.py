@@ -709,11 +709,11 @@ if df is not None and not df.empty:
                 column_config={
                     "송장금액_백만원": st.column_config.NumberColumn(
                         "송장금액(백만원)",
-                        format="%.0f"
+                        format="%,.0f"
                     ),
                     "송장수량_천EA": st.column_config.NumberColumn(
                         "송장수량(천EA)",
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -726,7 +726,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -739,7 +739,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -752,7 +752,7 @@ if df is not None and not df.empty:
                 column_config={
                     metric_name: st.column_config.NumberColumn(
                         metric_name.replace("_", "(").replace("EA", "EA)").replace("원", "원)"),
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -814,7 +814,9 @@ if df is not None and not df.empty:
             }
             
             # 툴팁 설정
-            tooltip_cols = ["시간표시:N", "송장금액_백만원:Q", "송장수량_천EA:Q"]
+            tooltip_cols = ["시간표시:N",
+                            alt.Tooltip("송장금액_백만원:Q", format=",.0f"),
+                            alt.Tooltip("송장수량_천EA:Q", format=",.0f")]
             if group_col_name:
                 tooltip_cols.insert(1, f"{group_col_name}:N")
             
@@ -875,7 +877,7 @@ if df is not None and not df.empty:
                     y=alt.Y('송장금액_백만원:Q', 
                            title='송장금액(백만원)', 
                            axis=alt.Axis(
-                               orient='left', 
+                               orient='left', format=',.0f', 
                                titleColor='steelblue', 
                                grid=True,
                                labelColor='steelblue',
@@ -898,7 +900,7 @@ if df is not None and not df.empty:
                     y=alt.Y('송장금액_백만원:Q', 
                            title='송장금액(백만원)', 
                            axis=alt.Axis(
-                               orient='left', 
+                               orient='left', format=',.0f', 
                                titleColor='steelblue', 
                                grid=True,
                                labelColor='steelblue',
@@ -931,7 +933,7 @@ if df is not None and not df.empty:
                                labelPadding=15,
                                titlePadding=20,
                                offset=5,
-                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor}))'
+                               labelExpr=f"format(max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor})), ',.0f')"
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
@@ -956,7 +958,7 @@ if df is not None and not df.empty:
                                labelPadding=15,
                                titlePadding=20,
                                offset=5,
-                               labelExpr=f'max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor}))'
+                               labelExpr=f"format(max(0, round((datum.value - {quantity_offset}) / {quantity_scale_factor})), ',.0f')"
                            ),
                            # **상단 영역으로 변환된 데이터 범위**
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
@@ -1001,7 +1003,7 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
                         alt.datum.송장금액_백만원 >= 20,  # 20 이상인 경우만 표시 (가독성 개선)
-                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.Text('송장금액_백만원:Q', format=',.0f'),
                         alt.value('')
                     ),
                     order=alt.Order(f"{group_col_name}:N", sort='ascending')
@@ -1020,7 +1022,7 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
                         alt.datum.송장금액_백만원 > 0,
-                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.Text('송장금액_백만원:Q', format=',.0f'),
                         alt.value('')
                     )
                 ).properties(**chart_props)
@@ -1033,7 +1035,7 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[0, expanded_max_amount])),
                     text=alt.condition(
                         alt.datum.송장금액_백만원 > 0,
-                        alt.Text('송장금액_백만원:Q', format='.0f'),
+                        alt.Text('송장금액_백만원:Q', format=',.0f'),
                         alt.value('')
                     ),
                     color=alt.value('black')
@@ -1050,7 +1052,7 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     text=alt.condition(
                         alt.datum.송장수량_천EA > 0,
-                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.Text('송장수량_천EA:Q', format=',.0f'),
                         alt.value('')
                     ),
                     color=alt.Color(f"{group_col_name}:N")
@@ -1065,7 +1067,7 @@ if df is not None and not df.empty:
                            scale=alt.Scale(domain=[min_quantity, expanded_max_quantity])),
                     text=alt.condition(
                         alt.datum.송장수량_천EA > 0,
-                        alt.Text('송장수량_천EA:Q', format='.0f'),
+                        alt.Text('송장수량_천EA:Q', format=',.0f'),
                         alt.value('')
                     ),
                     color=alt.value('red')
@@ -1108,15 +1110,15 @@ if df is not None and not df.empty:
             base = alt.Chart(time_df)
             line = base.mark_line(point=alt.OverlayMarkDef(size=100)).encode(
                 x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
-                tooltip=["시간표시:N", f"{metric_name}:Q"]
+                y=alt.Y(f"{metric_name}:Q", title=y_title, axis=alt.Axis(format=",.0f")),
+                tooltip=["시간표시:N", alt.Tooltip(f"{metric_name}:Q", format=",.0f")]
             )
             text = base.mark_text(dy=-15, fontSize=11, fontWeight='bold', color='darkblue').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
                     f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.Text(f"{metric_name}:Q", format=',.0f'),
                     alt.value('')
                 )
             )
@@ -1125,16 +1127,16 @@ if df is not None and not df.empty:
             base = alt.Chart(time_df)
             line = base.mark_line(point=True).encode(
                 x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                y=alt.Y(f"{metric_name}:Q", title=y_title, axis=alt.Axis(format=",.0f")),
                 color=alt.Color("플랜트_업체:N", title="플랜트_업체"),
-                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", "플랜트:O", "공급업체명:N", alt.Tooltip(f"{metric_name}:Q", format=",.0f")]
             )
             text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
                     f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.Text(f"{metric_name}:Q", format=',.0f'),
                     alt.value('')
                 ),
                 color=alt.Color("플랜트_업체:N")
@@ -1144,16 +1146,16 @@ if df is not None and not df.empty:
             base = alt.Chart(time_df)
             line = base.mark_line(point=True).encode(
                 x=x_encoding,
-                y=alt.Y(f"{metric_name}:Q", title=y_title),
+                y=alt.Y(f"{metric_name}:Q", title=y_title, axis=alt.Axis(format=",.0f")),
                 color=alt.Color(f"{group_col}:N", title=group_col),
-                tooltip=["시간표시:N", f"{group_col}:N", f"{metric_name}:Q"]
+                tooltip=["시간표시:N", f"{group_col}:N", alt.Tooltip(f"{metric_name}:Q", format=",.0f")]
             )
             text = base.mark_text(dy=-15, fontSize=9, fontWeight='bold').encode(
                 x=x_encoding,
                 y=alt.Y(f"{metric_name}:Q"),
                 text=alt.condition(
                     f"datum.{metric_name} > 0",
-                    alt.Text(f"{metric_name}:Q", format='.0f'),
+                    alt.Text(f"{metric_name}:Q", format=',.0f'),
                     alt.value('')
                 ),
                 color=alt.Color(f"{group_col}:N")
@@ -1393,11 +1395,11 @@ if df is not None and not df.empty:
                             column_config={
                                 "송장금액": st.column_config.NumberColumn(
                                     "송장금액",
-                                    format="%.0f"
+                                    format="%,.0f"
                                 ),
                                 "송장수량": st.column_config.NumberColumn(
                                     "송장수량", 
-                                    format="%.0f"
+                                    format="%,.0f"
                                 )
                             }
                         )
@@ -1456,15 +1458,15 @@ if df is not None and not df.empty:
                         column_config={
                             "송장금액": st.column_config.NumberColumn(
                                 "송장금액",
-                                format="%.0f"
+                                format="%,.0f"
                             ),
                             "송장수량": st.column_config.NumberColumn(
                                 "송장수량", 
-                                format="%.0f"
+                                format="%,.0f"
                             ),
                             "단가": st.column_config.NumberColumn(
                                 "단가",
-                                format="%.0f"
+                                format="%,.0f"
                             )
                         }
                     )
@@ -1556,11 +1558,11 @@ if df is not None and not df.empty:
             column_config={
                 "송장금액_백만원": st.column_config.NumberColumn(
                     "송장금액(백만원)",
-                    format="%.0f"
+                    format="%,.0f"
                 ),
                 "송장수량_천EA": st.column_config.NumberColumn(
                     "송장수량(천EA)", 
-                    format="%.0f"
+                    format="%,.0f"
                 )
             }
         )
@@ -1736,11 +1738,11 @@ if df is not None and not df.empty:
                     column_config={
                         "송장금액_백만원": st.column_config.NumberColumn(
                             "송장금액(백만원)",
-                            format="%.0f"
+                            format="%,.0f"
                         ),
                         "송장수량_천EA": st.column_config.NumberColumn(
                             "송장수량(천EA)", 
-                            format="%.0f"
+                            format="%,.0f"
                         )
                     }
                 )
@@ -1752,15 +1754,15 @@ if df is not None and not df.empty:
                 column_config={
                     "송장금액_백만원": st.column_config.NumberColumn(
                         "송장금액(백만원)",
-                        format="%.0f"
+                        format="%,.0f"
                     ),
                     "송장수량_천EA": st.column_config.NumberColumn(
                         "송장수량(천EA)", 
-                        format="%.0f"
+                        format="%,.0f"
                     ),
                     "단가": st.column_config.NumberColumn(
                         "단가",
-                        format="%.0f"
+                        format="%,.0f"
                     )
                 }
             )
@@ -1854,13 +1856,13 @@ if df is not None and not df.empty:
                         use_container_width=True,
                         column_config={
                             "연월표시": st.column_config.TextColumn("연월", width="small"),
-                            "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
-                            "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
-                            "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
+                            "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%,.0f"),
+                            "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%,.0f"),
+                            "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%,.0f"),
                             "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
-                            "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
-                            "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
-                            "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
+                            "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%,.0f"),
+                            "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%,.0f"),
+                            "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%,.0f"),
                             "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
                         }
                     )
@@ -1960,13 +1962,13 @@ if df is not None and not df.empty:
                         column_config={
                             "연월표시": st.column_config.TextColumn("연월", width="small"),
                             "공급업체명": st.column_config.TextColumn("업체명", width="medium"),
-                            "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%.0f"),
-                            "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%.0f"),
-                            "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%.0f"),
+                            "당월금액": st.column_config.NumberColumn("당월금액(백만원)", format="%,.0f"),
+                            "전월금액": st.column_config.NumberColumn("전월금액(백만원)", format="%,.0f"),
+                            "금액차이": st.column_config.NumberColumn("금액차이(백만원)", format="%,.0f"),
                             "금액증감률": st.column_config.NumberColumn("금액증감률(%)", format="%.1f%%"),
-                            "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%.0f"),
-                            "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%.0f"),
-                            "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%.0f"),
+                            "당월수량": st.column_config.NumberColumn("당월수량(천EA)", format="%,.0f"),
+                            "전월수량": st.column_config.NumberColumn("전월수량(천EA)", format="%,.0f"),
+                            "수량차이": st.column_config.NumberColumn("수량차이(천EA)", format="%,.0f"),
                             "수량증감률": st.column_config.NumberColumn("수량증감률(%)", format="%.1f%%")
                         }
                     )
@@ -2043,7 +2045,7 @@ if df is not None and not df.empty:
                             use_container_width=True,
                             column_config={
                                 "공급업체명": st.column_config.TextColumn("업체명"),
-                                "총구매액": st.column_config.NumberColumn("총구매액(백만원)", format="%.0f"),
+                                "총구매액": st.column_config.NumberColumn("총구매액(백만원)", format="%,.0f"),
                                 "비중": st.column_config.NumberColumn("비중(%)", format="%.1f%%")
                             }
                         )

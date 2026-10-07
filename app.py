@@ -1,3 +1,4 @@
+import hashlib
 from io import BytesIO
 from typing import List, Optional
 
@@ -304,6 +305,34 @@ def enhance_pattern(pattern: str) -> str:
     return pattern.replace("*", "%").replace("'", "''")
 
 
+def build_dimension_filters(sel_plants: list, plants_all: list, sel_groups: list, groups_all: list,
+                            sel_suppliers: list, suppliers_all: list) -> list[str]:
+    """플랜트/구매그룹/업체 필터 SQL 조건 생성 (일부만 선택한 경우에만 조건 추가)"""
+    filters = []
+    if plants_all and len(sel_plants) < len(plants_all):
+        filters.append(f"플랜트 IN ({sql_list_num(sel_plants)})")
+    if groups_all and len(sel_groups) < len(groups_all):
+        filters.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
+    if suppliers_all and len(sel_suppliers) < len(suppliers_all):
+        # 업체표시 컬럼으로 직접 비교 (코드/명 분리 파싱 시 '_' 포함 업체명, 코드 없는 업체가 누락되던 문제 해소)
+        filters.append(f"업체표시 IN ({sql_list_str(sel_suppliers)})")
+    return filters
+
+
+def normalize_material_code(code) -> str:
+    """자재코드 비교용 정규화: 공백 제거, 숫자형 변환으로 생긴 '.0' 제거, 숫자 코드의 앞자리 0 제거"""
+    if code is None or (isinstance(code, float) and pd.isna(code)):
+        return ""
+    s = str(code).strip().upper()
+    if s in ("", "NAN", "NONE", "<NA>"):
+        return ""
+    if s.endswith(".0") and s[:-2].isdigit():
+        s = s[:-2]
+    if s.isdigit():
+        s = s.lstrip("0") or "0"
+    return s
+
+
 
 def _set_all(key: str, opts: list):
     st.session_state[key] = opts
@@ -328,9 +357,15 @@ with st.sidebar:
 
 if uploaded_file:
     with st.spinner("CSV 불러오는 중..."):
-        if st.session_state.get("file_name") != uploaded_file.name:
+        # 파일명만 비교하면 같은 이름의 갱신된 파일을 올려도 이전 데이터가 유지되므로 내용 해시로 비교
+        file_key = (uploaded_file.name, hashlib.md5(uploaded_file.getvalue()).hexdigest())
+        if st.session_state.get("file_key") != file_key:
             st.session_state["df"] = load_csv(uploaded_file)
-            st.session_state["file_name"] = uploaded_file.name
+            st.session_state["file_key"] = file_key
+            # 이전 파일 기준의 기간/필터 선택값이 남아 새 데이터(신규 월·업체)가 빠지지 않도록 초기화
+            for key in list(st.session_state.keys()):
+                if key.endswith("_ms") or key in ("start_ym", "end_ym"):
+                    del st.session_state[key]
     df: Optional[pd.DataFrame] = st.session_state["df"]
 else:
     st.info("먼저 CSV 파일을 업로드해 주세요.")
@@ -367,8 +402,9 @@ if df is not None and not df.empty:
         yearmonths_all = sorted(df["연월"].dropna().dt.strftime('%Y-%m').unique().tolist())
         plants_all = sorted([x for x in df["플랜트"].dropna().astype(int).unique() if x > 0]) if "플랜트" in df.columns else []
         groups_all = sorted([x for x in df["구매그룹"].dropna().astype(int).unique() if x > 0]) if "구매그룹" in df.columns else []
+        # 주의: 'nan' 부분일치로 거르면 FINANCE, NANO 같은 정상 업체명까지 제외됨 → 정확히 일치하는 경우만 제외
         suppliers_all = sorted([x for x in df["업체표시"].dropna().unique()
-                                if str(x).strip() != '' and 'nan' not in str(x).lower() and not str(x).startswith('0_')]) if "업체표시" in df.columns else []
+                                if str(x).strip() not in ('', 'nan', 'None') and not str(x).startswith('0_')]) if "업체표시" in df.columns else []
 
         # 연월 범위 선택
         st.subheader("기간 입력 (YYYY-MM)")
@@ -412,35 +448,13 @@ if df is not None and not df.empty:
         ym_conditions.append(f"(EXTRACT(YEAR FROM 마감월) = {year} AND EXTRACT(MONTH FROM 마감월) = {int(month)})")
     
     clauses = [f"({' OR '.join(ym_conditions)})"]
-    if plants_all:
-        clauses.append(f"플랜트 IN ({sql_list_num(sel_plants)})")
-    if groups_all:
-        clauses.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
-    if suppliers_all:
-        # 안전한 업체 필터 조건 생성
-        if "공급업체코드" in df.columns:
-            codes = []
-            for s in sel_suppliers:
-                if "_" in s:
-                    code = s.split("_", 1)[0]
-                    if code and code != "0":  # 유효한 코드만 추가
-                        codes.append(code)
-                elif s and s != "0":
-                    codes.append(s)
-            if codes:
-                clauses.append(f"공급업체코드 IN ({sql_list_str(codes)})")
-        else:
-            names = []
-            for s in sel_suppliers:
-                if "_" in s:
-                    name = s.split("_", 1)[1]
-                    if name and name.strip():
-                        names.append(name.strip())
-                elif s and s.strip():
-                    names.append(s.strip())
-            if names:
-                clauses.append(f"공급업체명 IN ({sql_list_str(names)})")
-    
+    # 플랜트/구매그룹/업체 필터는 "일부만 선택"한 경우에만 적용.
+    # 전체 선택 시에도 IN 조건을 걸면 값이 비어 있는 행(플랜트 0, 업체코드 없음 등)이 조용히 제외됨.
+    clauses.extend(build_dimension_filters(sel_plants, plants_all, sel_groups, groups_all, sel_suppliers, suppliers_all))
+
+    # 자재 검색이 적용되지 않은 기본 조건 (미마감/단종 점검처럼 독립적으로 동작해야 하는 섹션에서 사용)
+    base_where_sql = " WHERE " + " AND ".join(clauses)
+
     # 자재 검색 조건 추가 (하단 검색과 전역 연동) - 다중 필터 지원
     material_search_conditions = []
     material_name_search = st.session_state.global_material_name_search
@@ -1315,35 +1329,9 @@ if df is not None and not df.empty:
                 """
                 
                 # 기존 필터 조건 추가
-                additional_filters = []
-                if plants_all and sel_plants:
-                    additional_filters.append(f"플랜트 IN ({sql_list_num(sel_plants)})")
-                if groups_all and sel_groups:
-                    additional_filters.append(f"구매그룹 IN ({sql_list_num(sel_groups)})")
-                if suppliers_all and sel_suppliers:
-                    # 안전한 업체 필터 조건 생성
-                    if "공급업체코드" in df.columns:
-                        codes = []
-                        for s in sel_suppliers:
-                            if "_" in s:
-                                code = s.split("_", 1)[0]
-                                if code and code != "0":  # 유효한 코드만 추가
-                                    codes.append(code)
-                            elif s and s != "0":
-                                codes.append(s)
-                        if codes:
-                            additional_filters.append(f"공급업체코드 IN ({sql_list_str(codes)})")
-                    else:
-                        names = []
-                        for s in sel_suppliers:
-                            if "_" in s:
-                                name = s.split("_", 1)[1]
-                                if name and name.strip():
-                                    names.append(name.strip())
-                            elif s and s.strip():
-                                names.append(s.strip())
-                        if names:
-                            additional_filters.append(f"공급업체명 IN ({sql_list_str(names)})")
+                additional_filters = build_dimension_filters(
+                    sel_plants, plants_all, sel_groups, groups_all, sel_suppliers, suppliers_all
+                )
                 
                 # 그룹별 추가 필터
                 if group_option == "플랜트별" and 'selected_group' in locals() and selected_group is not None:
@@ -2077,6 +2065,10 @@ if df is not None and not df.empty:
     st.markdown("---")
     st.header("미마감 자재 확인")
     st.info("입력한 자재코드 중 현재 데이터에서 검색되지 않는 자재를 확인합니다.")
+    st.caption(
+        f"확인 기준: 사이드바 기간({min(sel_yearmonths)} ~ {max(sel_yearmonths)}) 및 플랜트/구매그룹/업체 필터 적용, "
+        "하단 '자재 검색' 조건은 적용되지 않음. 기간 밖에서 마감된 자재는 미마감으로 표시됩니다."
+    )
 
     unmatch_material_codes = st.text_area(
         "확인할 자재코드 입력 (쉼표, 개행, 탭으로 구분)",
@@ -2096,30 +2088,21 @@ if df is not None and not df.empty:
 
             if input_codes:
                 # 데이터에 존재하는 자재코드 조회
-                existing_codes_query = f"""
-                SELECT DISTINCT CAST(자재 AS VARCHAR) AS 자재코드
+                # - base_where_sql 사용: 하단 '자재 검색' 조건이 섞이면 검색어 외 자재가 모두 미마감으로 잡힘
+                # - 정규화 후 정확 일치 비교: 앞자리 0 / '.0' 차이로 인한 오판 방지,
+                #   부분일치(ILIKE)는 '12345'가 '123456'에 걸려 마감으로 오판되므로 사용하지 않음
+                existing_codes_df = con.execute(f"""
+                SELECT DISTINCT 자재
                 FROM data
-                {where_sql}
-                """
-                existing_codes_df = con.execute(existing_codes_query).fetchdf()
-                existing_codes_set = set(existing_codes_df['자재코드'].astype(str).str.strip())
+                {base_where_sql}
+                """).fetchdf()
+                existing_codes_set = {normalize_material_code(c) for c in existing_codes_df['자재']}
 
-                # 미마감 자재 찾기 (데이터에 없는 자재코드)
-                unmatched_codes = []
-                for code in input_codes:
-                    # 정확히 일치하는 코드 확인
-                    if code not in existing_codes_set:
-                        # 부분 일치도 확인 (enhance_pattern 로직)
-                        pattern = enhance_pattern(code)
-                        match_query = f"""
-                        SELECT COUNT(*) as cnt
-                        FROM data
-                        {where_sql} AND CAST(자재 AS VARCHAR) ILIKE '{pattern}'
-                        """
-                        match_count = con.execute(match_query).fetchdf()['cnt'].iloc[0]
-
-                        if match_count == 0:
-                            unmatched_codes.append(code)
+                # 미마감 자재 찾기 (데이터에 없는 자재코드, 입력 순서 유지·중복 제거)
+                unmatched_codes = [
+                    code for code in dict.fromkeys(input_codes)
+                    if normalize_material_code(code) not in existing_codes_set
+                ]
 
                 # 결과를 세션 상태에 저장
                 st.session_state.unmatch_result = {
@@ -2237,7 +2220,7 @@ if df is not None and not df.empty:
                    {check_supplier_code_select}
                    공급업체명 AS 업체명
             FROM data
-            {where_sql} AND ({check_where})
+            {base_where_sql} AND ({check_where})
             ORDER BY 자재코드, 업체명
             """
 

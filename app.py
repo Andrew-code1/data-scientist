@@ -199,6 +199,20 @@ def _standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _to_number(s: pd.Series) -> tuple[pd.Series, list[str]]:
+    """문자열 숫자 정리 후 변환. (변환된 Series, 변환 실패한 원본 값 목록) 반환"""
+    if pd.api.types.is_numeric_dtype(s):
+        return s, []
+    txt = s.astype(str).str.strip()
+    blank = s.isna() | txt.isin(["", "nan", "NaN", "None", "-"])
+    t = txt.str.replace(r"[,\s원₩]", "", regex=True)
+    t = t.str.replace(r"^\((.*)\)$", r"-\1", regex=True)   # (1234) → -1234
+    t = t.str.replace(r"^([0-9.]+)-$", r"-\1", regex=True)  # 1234- → -1234 (SAP 음수)
+    num = pd.to_numeric(t, errors="coerce")
+    bad = txt[num.isna() & ~blank].unique().tolist()
+    return num, bad
+
+
 @st.cache_data(show_spinner=False)
 def load_csv(upload: BytesIO) -> pd.DataFrame:
     df = pd.read_csv(upload, encoding="cp949", low_memory=False)
@@ -220,10 +234,14 @@ def load_csv(upload: BytesIO) -> pd.DataFrame:
     df["연월"] = df["마감월"].dt.to_period("M").dt.to_timestamp()
 
     num_cols: List[str] = [c for c in ["송장수량", "송장금액", "단가", "플랜트", "구매그룹"] if c in df.columns]
-    
-    if num_cols:
-        for col in num_cols:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # 천단위 콤마("1,234,567")·SAP 음수("1,234-")·괄호 음수("(1,234)")가 섞인 달은
+    # pd.to_numeric(errors="coerce")가 NaN → 0 으로 바꿔 금액이 0으로 나오던 문제 해소
+    for col in num_cols:
+        df[col], bad = _to_number(df[col])
+        if bad:
+            st.warning(f"'{col}' 컬럼에서 숫자로 읽지 못한 값 {len(bad):,}건 → 0 처리 (예: {', '.join(bad[:5])})")
+        df[col] = df[col].fillna(0)
 
     if "공급업체명" in df.columns:
         df["공급업체명"] = df["공급업체명"].astype(str).str.strip()
@@ -761,44 +779,17 @@ if df is not None and not df.empty:
         click = alt.selection_point(name="point_select")
         
         # X축 설정 개선 - 중복 방지 및 정렬
-        if time_unit == "월별":
-            # 월별 차트의 경우 시간을 정확히 처리하고 중복 방지
-            unique_months = sorted(time_df[time_name].unique())
-            
-            x_encoding = alt.X(
-                f"{time_name}:T", 
-                title=time_unit, 
-                axis=alt.Axis(
-                    format=time_format, 
-                    labelAngle=-45,
-                    labelOverlap=False,
-                    labelSeparation=15,
-                    values=unique_months,  # 정확한 월 값들만 표시
-                    offset=10  # X축을 아래로 이동하여 Y축과 거리 확보
-                ),
-                sort="ascending",
-                scale=alt.Scale(
-                    type="time",
-                    nice=False,
-                    domain=unique_months,  # 도메인을 정확한 월들로 제한
-                    padding=0.2,  # X축 양쪽 여백을 20%로 증가
-                    range=[50, {"expr": "width-50"}]  # 실제 차트 영역을 왼쪽 50px, 오른쪽 50px 안쪽으로 제한
-                )
-            )
-        else:
-            # 연도별의 경우
-            unique_years = sorted(time_df[time_name].unique())
-            x_encoding = alt.X(
-                f"{time_name}:O", 
-                title=time_unit,
-                axis=alt.Axis(offset=10),  # X축을 아래로 이동
-                sort="ascending",
-                scale=alt.Scale(
-                    domain=unique_years,  # 도메인 명시적 지정
-                    padding=0.2,  # X축 양쪽 여백을 20%로 증가
-                    range=[50, {"expr": "width-50"}]  # 실제 차트 영역을 왼쪽 50px, 오른쪽 50px 안쪽으로 제한
-                )
-            )
+        # 월/연도를 순서형(밴드) 축으로 표시 → 데이터가 있는 달마다 칸이 고르게 잡힘.
+        # (이전: 시간축에 문자열 도메인 + range "width-50" 지정 → 축이 차트 밖으로 늘어나 1~2개월만 보이던 문제)
+        # '시간표시'("2026년05월"/"2026년") 문자열은 사전순 = 시간순이라 그대로 정렬해도 됨.
+        # (yearmonth() 시간단위를 쓰면 선+포인트 레이어에서 NaN 칸이 추가로 생김)
+        x_encoding = alt.X(
+            "시간표시:O",
+            title=time_unit,
+            axis=alt.Axis(labelAngle=-45 if time_unit == "월별" else 0, offset=10),
+            sort="ascending",
+            scale=alt.Scale(paddingOuter=0.2),
+        )
 
         # 복합 차트 생성 함수 (이중축) - 누적막대 + 심미적 개선
         def create_combined_chart(data, group_col_name=None):
@@ -828,7 +819,10 @@ if df is not None and not df.empty:
             else:
                 # 전체 데이터인 경우
                 max_stacked_amount = data['송장금액_백만원'].max() if not data.empty else 100
-            
+            # 금액이 모두 0/음수면 축 범위가 [0,0]이 되어 차트·보조축 라벨이 깨지므로 최소값 보장
+            if not pd.notna(max_stacked_amount) or max_stacked_amount <= 0:
+                max_stacked_amount = 1
+
             # 송장수량 범위 계산 (꺾은선을 누적막대 상단에 배치) - 개선된 축 설정
             non_zero_quantities = data[data['송장수량_천EA'] > 0]['송장수량_천EA']
             if not non_zero_quantities.empty:
@@ -985,6 +979,7 @@ if df is not None and not df.empty:
                         
                         cumulative_data.append({
                             time_name: time_val,
+                            '시간표시': row['시간표시'],
                             group_col_name: row[group_col_name],
                             '송장금액_백만원': row['송장금액_백만원'],
                             'mid_y': mid_y  # 중점 위치
@@ -1010,8 +1005,7 @@ if df is not None and not df.empty:
                 ).properties(**chart_props)
                 
                 # 전체 누적값도 상단에 표시
-                stacked_totals = data.groupby(time_name)['송장금액_백만원'].sum().reset_index()
-                stacked_totals[time_name] = pd.to_datetime(stacked_totals[time_name]) if time_unit == "월별" else stacked_totals[time_name]
+                stacked_totals = data.groupby([time_name, '시간표시'])['송장금액_백만원'].sum().reset_index()
                 
                 bar_text = alt.Chart(stacked_totals).mark_text(
                     dy=-8, fontSize=10, fontWeight='bold', color='steelblue'
